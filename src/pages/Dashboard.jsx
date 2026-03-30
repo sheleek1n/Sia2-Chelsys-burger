@@ -1,14 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { api } from '@/api'
-import { DollarSign, ShoppingCart, TrendingUp } from 'lucide-react'
+import { DollarSign, ShoppingCart, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { format, subDays } from 'date-fns'
 import StatCard from '@/components/dashboard/StatCard'
-import LowStockAlert from '@/components/dashboard/LowStockAlert'
 import RevenueChart from '@/components/dashboard/RevenueChart'
 import TopItems from '@/components/dashboard/TopItems'
 import PageHeader from '@/components/shared/PageHeader'
+import { useAuth } from '@/lib/AuthContext'
 
 export default function Dashboard() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const navigate = useNavigate()
   const [orders, setOrders] = useState([])
   const [ingredients, setIngredients] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
@@ -57,6 +61,99 @@ export default function Dashboard() {
     })
   }
 
+  const inventoryAlerts = useMemo(() => {
+    const expired = ingredients.filter((i) => api.ingredients.getExpiryStatus(i.expiry_date)?.severity === 'critical')
+    const expiringSoon = ingredients.filter((i) => api.ingredients.getExpiryStatus(i.expiry_date)?.severity === 'warning')
+    const outOfStock = ingredients.filter((i) => (i.current_stock || 0) === 0)
+    const lowStock = ingredients.filter((i) => (i.current_stock || 0) > 0 && (i.current_stock || 0) <= (i.warning_level || 0))
+
+    const totalAlerts = new Set([
+      ...expired.map((i) => i.id),
+      ...expiringSoon.map((i) => i.id),
+      ...outOfStock.map((i) => i.id),
+      ...lowStock.map((i) => i.id),
+    ]).size
+
+    return { expired, expiringSoon, outOfStock, lowStock, totalAlerts }
+  }, [ingredients])
+
+  const hasCritical = inventoryAlerts.expired.length > 0 || inventoryAlerts.outOfStock.length > 0
+  const hasAnyIssues = inventoryAlerts.totalAlerts > 0
+  const hasExpiryIssues = inventoryAlerts.expired.length > 0 || inventoryAlerts.expiringSoon.length > 0
+
+  const summarizeItems = (items, formatItem) => {
+    if (items.length === 0) return ''
+    const shown = items.slice(0, 3).map(formatItem)
+    const remaining = items.length - shown.length
+    return `${shown.join(', ')}${remaining > 0 ? ` +${remaining} more` : ''}`
+  }
+
+  const handleViewInventory = () => {
+    navigate('/Products', { state: { defaultTab: hasExpiryIssues ? 'activity' : 'ingredients' } })
+  }
+
+  const alertGroups = useMemo(() => {
+    const groups = []
+
+    if (inventoryAlerts.expired.length > 0 && inventoryAlerts.outOfStock.length > 0) {
+      const urgentCount = new Set([
+        ...inventoryAlerts.expired.map((i) => i.id),
+        ...inventoryAlerts.outOfStock.map((i) => i.id),
+      ]).size
+      groups.push({
+        key: 'urgent',
+        icon: '🔴',
+        title: `${urgentCount} urgent items - ${inventoryAlerts.expired.length} expired, ${inventoryAlerts.outOfStock.length} out of stock`,
+        detail: summarizeItems(
+          [...new Map([...inventoryAlerts.expired, ...inventoryAlerts.outOfStock].map((i) => [i.id, i])).values()],
+          (i) => i.name,
+        ),
+        tone: 'red',
+      })
+    } else {
+      if (inventoryAlerts.expired.length > 0) {
+        groups.push({
+          key: 'expired',
+          icon: '🔴',
+          title: `${inventoryAlerts.expired.length} expired items`,
+          detail: summarizeItems(inventoryAlerts.expired, (i) => i.name),
+          tone: 'red',
+        })
+      }
+      if (inventoryAlerts.outOfStock.length > 0) {
+        groups.push({
+          key: 'out_of_stock',
+          icon: '🔴',
+          title: `${inventoryAlerts.outOfStock.length} out of stock items`,
+          detail: summarizeItems(inventoryAlerts.outOfStock, (i) => i.name),
+          tone: 'red',
+        })
+      }
+    }
+
+    if (inventoryAlerts.expiringSoon.length > 0) {
+      groups.push({
+        key: 'expiring_soon',
+        icon: '🟠',
+        title: `${inventoryAlerts.expiringSoon.length} item${inventoryAlerts.expiringSoon.length > 1 ? 's' : ''} expiring soon`,
+        detail: summarizeItems(inventoryAlerts.expiringSoon, (i) => `${i.name} (${format(new Date(i.expiry_date), 'MMM d')})`),
+        tone: 'orange',
+      })
+    }
+
+    if (inventoryAlerts.lowStock.length > 0) {
+      groups.push({
+        key: 'low_stock',
+        icon: '🟡',
+        title: `${inventoryAlerts.lowStock.length} low stock item${inventoryAlerts.lowStock.length > 1 ? 's' : ''}`,
+        detail: summarizeItems(inventoryAlerts.lowStock, (i) => `${i.name} (${i.current_stock} remaining)`),
+        tone: 'yellow',
+      })
+    }
+
+    return groups.slice(0, 4)
+  }, [inventoryAlerts])
+
   return (
     <div>
       <PageHeader title="Sales Dashboard" subtitle={`Today, ${format(new Date(), 'MMMM d, yyyy')}`} />
@@ -68,8 +165,49 @@ export default function Dashboard() {
       <div className="mb-6">
         <RevenueChart data={chartData} view={chartView} onViewChange={setChartView} />
       </div>
+
+      {isAdmin && (
+        <div className={`mb-6 bg-card rounded-xl border p-5 shadow-sm ${hasAnyIssues ? (hasCritical ? 'border-red-300' : 'border-yellow-300') : 'border-green-300 bg-green-50'}`}>
+          {!hasAnyIssues ? (
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+              <div>
+                <p className="font-semibold text-green-700">Inventory looks good</p>
+                <p className="text-sm text-green-700/80">No low stock or expiry issues</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className={`w-4 h-4 ${hasCritical ? 'text-red-600' : 'text-yellow-700'}`} />
+                  <h3 className="font-semibold text-sm">Inventory Alerts ({inventoryAlerts.totalAlerts})</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleViewInventory}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  → View Inventory
+                </button>
+              </div>
+
+              <div className="mt-4 divide-y">
+                {alertGroups.map((group) => (
+                  <div key={group.key} className="py-3 first:pt-0 last:pb-0">
+                    <p className={`text-sm font-medium ${group.tone === 'red' ? 'text-red-700' : group.tone === 'orange' ? 'text-orange-700' : 'text-yellow-700'}`}>
+                      {group.icon} {group.title}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">{group.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <TopItems orders={todayOrders} />
-      <LowStockAlert ingredients={ingredients} />
     </div>
   )
 }

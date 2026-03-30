@@ -7,64 +7,11 @@ import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import { CheckCircle2, RefreshCcw } from 'lucide-react'
 
-function CashierNameEntry({ onStart }) {
-  const [name, setName] = useState('')
-  const [error, setError] = useState('')
-
-  const handleSubmit = () => {
-    const trimmed = name.trim()
-    if (!trimmed) {
-      setError('Please enter your name to continue.')
-      return
-    }
-    setError('')
-    onStart(trimmed)
-  }
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') handleSubmit()
-  }
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full bg-background">
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold text-primary mb-2">Chelsy's Burger</h1>
-        <p className="text-lg text-muted-foreground">{new Date().toLocaleDateString()}</p>
-      </div>
-      <div className="w-full max-w-sm space-y-4">
-        <input
-          type="text"
-          placeholder="Enter your name to start..."
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value)
-            if (error) setError('')
-          }}
-          onKeyPress={handleKeyPress}
-          className="w-full px-4 py-3 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-background"
-          autoFocus
-        />
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-        <button
-          onClick={handleSubmit}
-          className="w-full bg-primary text-primary-foreground px-4 py-3 rounded-lg hover:bg-primary/90 font-medium"
-        >
-          Start Shift
-        </button>
-      </div>
-    </div>
-  )
-}
-
 export default function CashierPOS() {
   const { user } = useAuth()
-  const { cashierName, setCashierName } = useCashierStore()
+  const { displayName } = useCashierStore()
 
-  if (!user && !cashierName) {
-    return <CashierNameEntry onStart={setCashierName} />
-  }
-
-  const activeName = user ? user.full_name : cashierName
+  const activeName = user ? user.full_name : displayName
   const [menuItems, setMenuItems] = useState([])
   const [recentOrders, setRecentOrders] = useState([])
   const [loading, setLoading] = useState(true)

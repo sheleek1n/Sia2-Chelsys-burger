@@ -37,7 +37,7 @@ export default function Layout({ children, currentPageName }) {
   const [user, setUser] = useState(null);
 
   const { user: authUser, logout: authLogout } = useAuth();
-  const { cashierName, clearCashierName } = useCashierStore();
+  const { displayName, clearCashierSession } = useCashierStore();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,14 +45,17 @@ export default function Layout({ children, currentPageName }) {
   }, [authUser]);
 
   // Determine role and active user details for UI display
-  const role = user ? "admin" : "cashier";
+  const isAdmin = user?.role === "admin";
+  const role = isAdmin ? "admin" : "cashier";
   const visibleNav = NAV_ITEMS.filter((item) => item.roles.includes(role));
   
   const handleLogout = async () => {
-    if (user) {
+    if (isAdmin) {
       await authLogout();
+      clearCashierSession();
+      navigate('/cashier-entry');
     } else {
-      clearCashierName();
+      clearCashierSession();
       navigate('/cashier-entry');
     }
   };
@@ -113,10 +116,10 @@ export default function Layout({ children, currentPageName }) {
 
         {/* User + Logout */}
         <div className="border-t border-white/10 p-3">
-          {!collapsed && (user || cashierName) && (
+          {!collapsed && (isAdmin || displayName) && (
             <div className="mb-2 px-1">
               <p className="text-white text-xs font-semibold truncate">
-                {user ? user.full_name : cashierName}
+                {isAdmin ? user.full_name : displayName}
               </p>
               <p className="text-white/50 text-xs capitalize">{role}</p>
             </div>

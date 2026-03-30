@@ -13,20 +13,21 @@ function load() {
   return {
     users: [
       { id: '1', username: 'admin', password: 'admin123', role: 'admin', full_name: 'Admin User' },
+      { id: '2', username: 'user', password: 'user123', role: 'cashier', full_name: 'Cashier User' },
     ],
     orders: [
       { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: new Date().toISOString().split('T')[0], items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299 }] },
     ],
     // Unified ingredients — single source of truth for both Admin Inventory and Cashier Production Log
     ingredients: [
-      { id: 'ing_1', name: 'Beef Patty',       unit: 'pcs',        current_stock: 50,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.' },
-      { id: 'ing_2', name: 'Burger Buns',       unit: 'pack of 24', current_stock: 80,  warning_level: 20, cost_per_unit: 8,   supplier: 'Bakery' },
-      { id: 'ing_3', name: 'Ketchup',           unit: '1kg bag',    current_stock: 2,   warning_level: 3,  cost_per_unit: 120, supplier: 'Condiments Inc.' },
-      { id: 'ing_4', name: 'Spicy Sauce',       unit: '1kg bag',    current_stock: 1,   warning_level: 2,  cost_per_unit: 95,  supplier: 'Condiments Inc.' },
-      { id: 'ing_5', name: 'Mayonnaise',        unit: '1kg bag',    current_stock: 5,   warning_level: 2,  cost_per_unit: 90,  supplier: 'Condiments Inc.' },
-      { id: 'ing_6', name: 'Cheese Slices',     unit: 'pack of 20', current_stock: 10,  warning_level: 4,  cost_per_unit: 75,  supplier: 'Dairy Best' },
-      { id: 'ing_7', name: 'Fries',             unit: '1kg bag',    current_stock: 15,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro' },
-      { id: 'ing_8', name: 'Chicken Fillets',   unit: 'pack of 10', current_stock: 20,  warning_level: 5,  cost_per_unit: 450, supplier: 'Poultry Farm' },
+      { id: 'ing_1', name: 'Beef Patty',       unit: 'pcs',        current_stock: 50,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.', expiry_date: null },
+      { id: 'ing_2', name: 'Burger Buns',      unit: 'pack of 24', current_stock: 80,  warning_level: 20, cost_per_unit: 8,   supplier: 'Bakery', expiry_date: null },
+      { id: 'ing_3', name: 'Ketchup',          unit: '1kg bag',    current_stock: 2,   warning_level: 3,  cost_per_unit: 120, supplier: 'Condiments Inc.', expiry_date: null },
+      { id: 'ing_4', name: 'Spicy Sauce',      unit: '1kg bag',    current_stock: 1,   warning_level: 2,  cost_per_unit: 95,  supplier: 'Condiments Inc.', expiry_date: null },
+      { id: 'ing_5', name: 'Mayonnaise',       unit: '1kg bag',    current_stock: 5,   warning_level: 2,  cost_per_unit: 90,  supplier: 'Condiments Inc.', expiry_date: null },
+      { id: 'ing_6', name: 'Cheese Slices',    unit: 'pack of 20', current_stock: 10,  warning_level: 4,  cost_per_unit: 75,  supplier: 'Dairy Best', expiry_date: null },
+      { id: 'ing_7', name: 'Fries',            unit: '1kg bag',    current_stock: 15,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro', expiry_date: null },
+      { id: 'ing_8', name: 'Chicken Fillets',  unit: 'pack of 10', current_stock: 20,  warning_level: 5,  cost_per_unit: 450, supplier: 'Poultry Farm', expiry_date: null },
     ],
     menuItems: [
       { id: 'seed_menu_1', name: 'Classic Burger',       category: 'burger', price: 299, is_available: true },
@@ -38,6 +39,7 @@ function load() {
     purchaseOrders: [],
     deliveries: [],
     stockLogs: [],
+    inventoryLogs: [],   // Activity log — fills as actions happen
   }
 }
 
@@ -48,6 +50,17 @@ function save(data) {
 }
 
 let db = load()
+
+// Ensure inventoryLogs exists for existing localStorage data
+if (!db.inventoryLogs) {
+  db.inventoryLogs = []
+  save(db)
+}
+
+if ((db.ingredients || []).some((item) => item.expiry_date === undefined)) {
+  db.ingredients = (db.ingredients || []).map((item) => ({ ...item, expiry_date: item.expiry_date ?? null }))
+  save(db)
+}
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
@@ -60,6 +73,46 @@ function nextPoNumber() {
     .filter((n) => !isNaN(n))
   const max = existing.length ? Math.max(...existing) : 0
   return `PO-${String(max + 1).padStart(4, '0')}`
+}
+
+function formatDateForLog(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function getExpiryStatus(expiry_date) {
+  if (!expiry_date) return null
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const expiry = new Date(`${expiry_date}T00:00:00`)
+  const daysUntilExpiry = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24))
+
+  if (daysUntilExpiry < 0) return { label: 'Expired', color: 'red', severity: 'critical', days: daysUntilExpiry }
+  if (daysUntilExpiry <= 3) return { label: `Expiring in ${daysUntilExpiry} days`, color: 'orange', severity: 'warning', days: daysUntilExpiry }
+  if (daysUntilExpiry <= 7) return { label: 'Expiring Soon', color: 'yellow', severity: 'warning', days: daysUntilExpiry }
+  return { label: 'Fresh', color: 'green', severity: 'info', days: daysUntilExpiry }
+}
+
+// ── Inventory Log Helper ────────────────────────────────────────────────────
+function createLog({ action, ingredientId, ingredientName, performedBy, details, previousValue, newValue, severity }) {
+  const log = {
+    id: uid(),
+    createdAt: new Date().toISOString(),
+    action,
+    ingredientId: ingredientId || null,
+    ingredientName: ingredientName || null,
+    performedBy: performedBy || 'System',
+    details,
+    previousValue: previousValue || null,
+    newValue: newValue || null,
+    severity: severity || 'info',
+  }
+  db.inventoryLogs = db.inventoryLogs || []
+  db.inventoryLogs.push(log)
+  save(db)
+  return log
 }
 
 // —— Auth ——
@@ -78,13 +131,21 @@ export const api = {
       return Promise.resolve(getStoredUser())
     },
     login(username, password) {
-      const user = db.users.find((u) => u.username === username && (u.password === password || !password))
-      if (user && user.role === 'admin') {
-        const session = { id: user.id, full_name: user.full_name, role: user.role }
-        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(session))
-        return Promise.resolve(session)
+      const user = db.users.find((u) => u.username === username && u.password === password)
+      if (!user) {
+        return Promise.reject(new Error('Invalid credentials'))
       }
-      return Promise.reject(new Error('Invalid credentials'))
+      
+      const session = { id: user.id, username: user.username, full_name: user.full_name, role: user.role }
+      
+      // Only persist admin sessions to localStorage
+      if (user.role === 'admin') {
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(session))
+      } else {
+        localStorage.removeItem(CURRENT_USER_KEY)
+      }
+      
+      return Promise.resolve(session)
     },
     logout() {
       localStorage.removeItem(CURRENT_USER_KEY)
@@ -119,6 +180,9 @@ export const api = {
   // ── Unified Ingredients ──────────────────────────────────────────────────
   // Single source of truth used by both Admin Products page and Cashier Production Log.
   ingredients: {
+    getExpiryStatus(expiry_date) {
+      return getExpiryStatus(expiry_date)
+    },
     list() {
       return Promise.resolve([...(db.ingredients || [])])
     },
@@ -126,22 +190,98 @@ export const api = {
       return Promise.resolve((db.ingredients || []).find((x) => x.id === id) ?? null)
     },
     create(data) {
-      const row = { id: uid(), ...data }
+      const row = { id: uid(), expiry_date: null, ...data }
       db.ingredients = db.ingredients || []
       db.ingredients.push(row)
       save(db)
+
+      // Log: item_added
+      createLog({
+        action: 'item_added',
+        ingredientId: row.id,
+        ingredientName: data.name,
+        performedBy: 'Admin',
+        details: `Added ${data.name} with initial stock of ${data.current_stock} ${data.unit}`,
+        newValue: `${data.current_stock} ${data.unit}`,
+        severity: 'info',
+      })
+
+      if (row.expiry_date) {
+        const formattedDate = formatDateForLog(row.expiry_date)
+        createLog({
+          action: 'expiry_added',
+          ingredientId: row.id,
+          ingredientName: row.name,
+          performedBy: 'Admin',
+          details: `Expiry date set for ${row.name}: ${formattedDate}`,
+          newValue: formattedDate,
+          severity: 'info',
+        })
+      }
+
       return Promise.resolve(row)
     },
     update(id, data) {
       db.ingredients = db.ingredients || []
       const i = db.ingredients.findIndex((x) => x.id === id)
-      if (i >= 0) db.ingredients[i] = { ...db.ingredients[i], ...data }
+      if (i < 0) return Promise.resolve(null)
+      const oldItem = { ...db.ingredients[i] }
+      db.ingredients[i] = { ...db.ingredients[i], ...data }
       save(db)
+
+      // Build detail string showing what changed
+      const changes = []
+      if (data.name !== undefined && data.name !== oldItem.name) changes.push(`name: ${oldItem.name} → ${data.name}`)
+      if (data.current_stock !== undefined && data.current_stock !== oldItem.current_stock) changes.push(`stock: ${oldItem.current_stock} → ${data.current_stock}`)
+      if (data.warning_level !== undefined && data.warning_level !== oldItem.warning_level) changes.push(`warning level: ${oldItem.warning_level} → ${data.warning_level}`)
+      if (data.unit !== undefined && data.unit !== oldItem.unit) changes.push(`unit: ${oldItem.unit} → ${data.unit}`)
+      if (data.cost_per_unit !== undefined && data.cost_per_unit !== oldItem.cost_per_unit) changes.push(`cost: ₱${oldItem.cost_per_unit} → ₱${data.cost_per_unit}`)
+      if (data.supplier !== undefined && data.supplier !== oldItem.supplier) changes.push(`supplier: ${oldItem.supplier} → ${data.supplier}`)
+      if (data.expiry_date !== undefined && data.expiry_date !== oldItem.expiry_date) changes.push(`expiry date: ${oldItem.expiry_date || 'none'} → ${data.expiry_date || 'none'}`)
+
+      const detailStr = changes.length > 0 ? `Updated ${oldItem.name}: ${changes.join(', ')}` : `Updated ${oldItem.name}`
+
+      createLog({
+        action: 'item_edited',
+        ingredientId: id,
+        ingredientName: oldItem.name,
+        performedBy: 'Admin',
+        details: detailStr,
+        severity: 'info',
+      })
+
+      if (data.expiry_date && data.expiry_date !== oldItem.expiry_date) {
+        const formattedDate = formatDateForLog(data.expiry_date)
+        createLog({
+          action: 'expiry_added',
+          ingredientId: id,
+          ingredientName: db.ingredients[i].name,
+          performedBy: 'Admin',
+          details: `Expiry date set for ${db.ingredients[i].name}: ${formattedDate}`,
+          newValue: formattedDate,
+          severity: 'info',
+        })
+      }
+
       return Promise.resolve(db.ingredients[i])
     },
     delete(id) {
+      const ingredient = (db.ingredients || []).find((x) => x.id === id)
       db.ingredients = (db.ingredients || []).filter((x) => x.id !== id)
       save(db)
+
+      // Log: item_deleted
+      if (ingredient) {
+        createLog({
+          action: 'item_deleted',
+          ingredientId: id,
+          ingredientName: ingredient.name,
+          performedBy: 'Admin',
+          details: `Deleted ${ingredient.name}`,
+          severity: 'info',
+        })
+      }
+
       return Promise.resolve()
     },
 
@@ -151,7 +291,8 @@ export const api = {
       const i = db.ingredients.findIndex((x) => x.id === itemId)
       if (i < 0) return Promise.reject(new Error('Ingredient not found'))
       const item = db.ingredients[i]
-      const newStock = Math.max(0, (item.current_stock || 0) - 1)
+      const oldStock = item.current_stock || 0
+      const newStock = Math.max(0, oldStock - 1)
       db.ingredients[i] = { ...item, current_stock: newStock }
       const logEntry = {
         id: uid(),
@@ -166,6 +307,32 @@ export const api = {
       db.stockLogs = db.stockLogs || []
       db.stockLogs.push(logEntry)
       save(db)
+
+      // Log: pack_opened
+      createLog({
+        action: 'pack_opened',
+        ingredientId: itemId,
+        ingredientName: item.name,
+        performedBy: loggedBy,
+        previousValue: `${oldStock} ${item.unit}`,
+        newValue: `${newStock} ${item.unit}`,
+        details: `${loggedBy} opened 1 pack of ${item.name}`,
+        severity: 'info',
+      })
+
+      // Check low stock after consume
+      if (newStock <= item.warning_level) {
+        createLog({
+          action: 'low_stock',
+          ingredientId: itemId,
+          ingredientName: item.name,
+          performedBy: 'System',
+          details: `${item.name} dropped to ${newStock} — below warning level of ${item.warning_level}`,
+          newValue: `${newStock} ${item.unit}`,
+          severity: newStock === 0 ? 'critical' : 'warning',
+        })
+      }
+
       return Promise.resolve({ item: db.ingredients[i], log: logEntry })
     },
 
@@ -176,7 +343,8 @@ export const api = {
       const i = db.ingredients.findIndex((x) => x.id === itemId)
       if (i < 0) return Promise.reject(new Error('Ingredient not found'))
       const item = db.ingredients[i]
-      let newStock = item.current_stock || 0
+      const oldStock = item.current_stock || 0
+      let newStock = oldStock
       if (type === 'add')    newStock = newStock + qty
       else if (type === 'remove') newStock = Math.max(0, newStock - qty)
       else if (type === 'set')    newStock = qty
@@ -194,7 +362,77 @@ export const api = {
       db.stockLogs = db.stockLogs || []
       db.stockLogs.push(logEntry)
       save(db)
+
+      // Log: stock_adjusted
+      const actionVerb = type === 'add' ? 'added' : type === 'remove' ? 'removed' : 'set to'
+      createLog({
+        action: 'stock_adjusted',
+        ingredientId: itemId,
+        ingredientName: item.name,
+        performedBy: loggedBy || 'Admin',
+        previousValue: `${oldStock} ${item.unit}`,
+        newValue: `${newStock} ${item.unit}`,
+        details: `${loggedBy || 'Admin'} ${actionVerb} ${qty} ${item.unit} — Reason: ${reason || 'N/A'}`,
+        severity: 'info',
+      })
+
+      // Check low stock after adjust
+      if (newStock <= item.warning_level) {
+        createLog({
+          action: 'low_stock',
+          ingredientId: itemId,
+          ingredientName: item.name,
+          performedBy: 'System',
+          details: `${item.name} dropped to ${newStock} — below warning level of ${item.warning_level}`,
+          newValue: `${newStock} ${item.unit}`,
+          severity: newStock === 0 ? 'critical' : 'warning',
+        })
+      }
+
       return Promise.resolve({ item: db.ingredients[i], log: logEntry })
+    },
+
+    checkAndLogExpiryAlerts() {
+      const currentUser = getStoredUser()
+      if (!currentUser || currentUser.role !== 'admin') {
+        return Promise.reject(new Error('Admin access required'))
+      }
+
+      const ingredients = [...(db.ingredients || [])]
+      const createdLogs = []
+
+      ingredients.forEach((item) => {
+        if (!item.expiry_date) return
+        const status = getExpiryStatus(item.expiry_date)
+        const formattedDate = formatDateForLog(item.expiry_date)
+        if (!status) return
+
+        if (status.severity === 'critical') {
+          const log = createLog({
+            action: 'expired',
+            ingredientId: item.id,
+            ingredientName: item.name,
+            performedBy: 'System',
+            details: `${item.name} has expired (expired: ${formattedDate})`,
+            newValue: formattedDate,
+            severity: 'critical',
+          })
+          createdLogs.push(log)
+        } else if (status.severity === 'warning') {
+          const log = createLog({
+            action: 'expiring_soon',
+            ingredientId: item.id,
+            ingredientName: item.name,
+            performedBy: 'System',
+            details: `${item.name} is expiring in ${status.days} days (${formattedDate})`,
+            newValue: formattedDate,
+            severity: 'warning',
+          })
+          createdLogs.push(log)
+        }
+      })
+
+      return Promise.resolve(createdLogs)
     },
   },
 
@@ -253,10 +491,14 @@ export const api = {
       items.forEach((line) => {
         const ing = (db.ingredients || []).findIndex((x) => x.id === line.ingredientId)
         if (ing >= 0) {
+          const oldStock = db.ingredients[ing].current_stock || 0
+          const newStock = oldStock + (line.quantity || 0)
           db.ingredients[ing] = {
             ...db.ingredients[ing],
-            current_stock: (db.ingredients[ing].current_stock || 0) + (line.quantity || 0),
+            current_stock: newStock,
           }
+
+          // Legacy stock log
           const logEntry = {
             id: uid(), itemId: line.ingredientId, itemName: line.ingredientName,
             action: 'received', quantity: line.quantity,
@@ -265,6 +507,18 @@ export const api = {
           }
           db.stockLogs = db.stockLogs || []
           db.stockLogs.push(logEntry)
+
+          // Log: delivery_received
+          createLog({
+            action: 'delivery_received',
+            ingredientId: line.ingredientId,
+            ingredientName: line.ingredientName,
+            performedBy: receivedBy || 'Admin',
+            details: `Received ${line.quantity} ${db.ingredients[ing].unit || 'units'} from ${line.supplierName || po.supplier || 'supplier'} (via ${po.po_number})`,
+            previousValue: `${oldStock} ${db.ingredients[ing].unit || 'units'}`,
+            newValue: `${newStock} ${db.ingredients[ing].unit || 'units'}`,
+            severity: 'info',
+          })
         }
       })
       db.purchaseOrders[i] = { ...po, status: 'received', received_at: new Date().toISOString(), received_by: receivedBy || 'Admin' }
@@ -287,6 +541,28 @@ export const api = {
       const row = { id: uid(), ...data }
       db.deliveries = db.deliveries || []
       db.deliveries.push(row)
+
+      // Log: delivery_received (when delivery payload is tied to an ingredient stock update)
+      if (data?.ingredientId) {
+        const ingredient = (db.ingredients || []).find((x) => x.id === data.ingredientId)
+        const qty = Number(data.quantity ?? data.qty ?? 0)
+        const unit = data.unit || ingredient?.unit || 'units'
+        const oldStock = Number(data.oldStock ?? ingredient?.current_stock ?? 0)
+        const newStock = Number(data.newStock ?? (oldStock + qty))
+        const supplier = data.supplier || ingredient?.supplier || 'supplier'
+
+        createLog({
+          action: 'delivery_received',
+          ingredientId: data.ingredientId,
+          ingredientName: data.ingredientName || ingredient?.name,
+          performedBy: data.loggedBy || 'Admin',
+          details: `Received ${qty} ${unit} from ${supplier}${data.poNumber ? ` (via ${data.poNumber})` : ''}`,
+          previousValue: `${oldStock} ${unit}`,
+          newValue: `${newStock} ${unit}`,
+          severity: 'info',
+        })
+      }
+
       save(db)
       return Promise.resolve(row)
     },
@@ -316,6 +592,47 @@ export const api = {
       db.stockLogs.push(row)
       save(db)
       return Promise.resolve(row)
+    },
+  },
+
+  // ── Inventory Logs (Activity Log) ─────────────────────────────────────────
+  inventoryLogs: {
+    list({ ingredientId, dateFrom, dateTo, action, severity } = {}) {
+      let logs = [...(db.inventoryLogs || [])]
+
+      if (ingredientId) {
+        logs = logs.filter((l) => l.ingredientId === ingredientId)
+      }
+      if (dateFrom) {
+        const from = new Date(dateFrom)
+        from.setHours(0, 0, 0, 0)
+        logs = logs.filter((l) => new Date(l.createdAt) >= from)
+      }
+      if (dateTo) {
+        const to = new Date(dateTo)
+        to.setHours(23, 59, 59, 999)
+        logs = logs.filter((l) => new Date(l.createdAt) <= to)
+      }
+      if (action) {
+        logs = logs.filter((l) => l.action === action)
+      }
+      if (severity) {
+        logs = logs.filter((l) => l.severity === severity)
+      }
+
+      // Sort most recent first
+      logs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+
+      return Promise.resolve(logs)
+    },
+    clear() {
+      const currentUser = getStoredUser()
+      if (!currentUser || currentUser.role !== 'admin') {
+        return Promise.reject(new Error('Admin access required'))
+      }
+      db.inventoryLogs = []
+      save(db)
+      return Promise.resolve()
     },
   },
 }

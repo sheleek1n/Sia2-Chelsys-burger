@@ -173,7 +173,7 @@ export default function ProductionLog() {
           { duration: 6000 }
         )
       }
-    } catch (err) {
+    } catch (_err) {
       toast.error('Failed to log pack. Please try again.')
     } finally {
       setConfirming(false)

@@ -7,20 +7,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 
 const UNITS = ['kg', 'g', 'liter', 'ml', 'pcs', 'pack']
 
-const emptyForm = { name: '', unit: '', current_stock: 0, warning_level: 0, cost_per_unit: 0, supplier: '' }
+const emptyForm = { name: '', unit: '', current_stock: 0, warning_level: 0, cost_per_unit: 0, supplier: '', expiry_date: '' }
 
 export default function IngredientForm({ open, onClose, onSave, initial }) {
   const [form, setForm] = useState(emptyForm)
 
   useEffect(() => {
-    if (initial) setForm({ ...emptyForm, ...initial })
+    if (initial) setForm({ ...emptyForm, ...initial, expiry_date: initial.expiry_date || '' })
     else setForm(emptyForm)
   }, [initial, open])
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const handleSave = () => {
-    onSave(form)
+    onSave({ ...form, expiry_date: form.expiry_date || null })
     onClose()
   }
 
@@ -56,6 +56,11 @@ export default function IngredientForm({ open, onClose, onSave, initial }) {
           <div>
             <Label>Supplier</Label>
             <Input value={form.supplier} onChange={(e) => set('supplier', e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label>Expiry Date (optional)</Label>
+            <Input type="date" value={form.expiry_date || ''} onChange={(e) => set('expiry_date', e.target.value)} className="mt-1" />
+            <p className="text-xs text-muted-foreground mt-1">Leave empty if this item has no expiry date</p>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>Cancel</Button>

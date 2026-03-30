@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
 import { pagesConfig } from './pages.config'
 import CashierEntry from './pages/CashierEntry'
+import DisplayNameEntry from './pages/DisplayNameEntry'
 
 const { Pages, Layout, mainPage, Login } = pagesConfig
 const mainPageKey = mainPage ?? Object.keys(Pages)[0]
@@ -18,7 +19,8 @@ function LayoutWrapper({ children, currentPageName }) {
 
 function ProtectedRoute({ children, pageName }) {
   const { user, loading } = useAuth()
-  const { cashierName } = useCashierStore()
+  const { displayName, username } = useCashierStore()
+  const isAdmin = user?.role === 'admin'
 
   if (loading) {
     return (
@@ -29,12 +31,12 @@ function ProtectedRoute({ children, pageName }) {
   }
 
   // If there's an active Admin session, they have access to everything (or admin pages)
-  if (user) {
+  if (isAdmin) {
     return children
   }
 
   // If no Admin session, but there IS a cashier session
-  if (cashierName) {
+  if (username && displayName) {
     // Cashiers cannot access admin pages
     if (pageName && ADMIN_ONLY_PAGES.includes(pageName)) {
       return <Navigate to="/CashierPOS" replace />
@@ -42,7 +44,7 @@ function ProtectedRoute({ children, pageName }) {
     return children
   }
 
-  // If neither, send to quick-entry screen
+  // If neither, send to login screen
   return <Navigate to="/cashier-entry" replace />
 }
 
@@ -51,6 +53,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/admin-login" element={<Login />} />
       <Route path="/cashier-entry" element={<CashierEntry />} />
+      <Route path="/display-name-entry" element={<DisplayNameEntry />} />
       <Route
         path="/"
         element={

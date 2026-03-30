@@ -17,15 +17,22 @@ export function AuthProvider({ children }) {
 
   const login = (username, password) =>
     api.auth.login(username, password).then((u) => {
-      setUser(u)
+      // Only admin should live in persistent auth context.
+      setUser(u.role === 'admin' ? u : null)
       return u
     })
 
   const logout = () =>
     api.auth.logout().then(() => setUser(null))
 
+  const setCashierSession = (username) => {
+    // Cashier session doesn't persist — just kept in context
+    const session = { username, role: 'cashier' }
+    return Promise.resolve(session)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, setUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, setUser, setCashierSession }}>
       {children}
     </AuthContext.Provider>
   )
