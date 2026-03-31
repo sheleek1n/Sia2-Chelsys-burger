@@ -5,22 +5,22 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-const UNITS = ['kg', 'g', 'liter', 'ml', 'pcs', 'pack']
+const DEFAULT_UNCATEGORIZED_ID = 7
+const emptyForm = { name: '', unit: '', current_stock: 0, warning_level: 0, cost_per_unit: 0, supplier: '', expiry_date: '', categoryId: DEFAULT_UNCATEGORIZED_ID }
 
-const emptyForm = { name: '', unit: '', current_stock: 0, warning_level: 0, cost_per_unit: 0, supplier: '', expiry_date: '' }
-
-export default function IngredientForm({ open, onClose, onSave, initial }) {
+export default function IngredientForm({ open, onClose, onSave, initial, categories = [] }) {
   const [form, setForm] = useState(emptyForm)
+  const categoriesForSelect = categories.length > 0 ? categories : [{ id: DEFAULT_UNCATEGORIZED_ID, name: 'Uncategorized', emoji: '📦' }]
 
   useEffect(() => {
-    if (initial) setForm({ ...emptyForm, ...initial, expiry_date: initial.expiry_date || '' })
+    if (initial) setForm({ ...emptyForm, ...initial, expiry_date: initial.expiry_date || '', categoryId: Number(initial.categoryId ?? DEFAULT_UNCATEGORIZED_ID) })
     else setForm(emptyForm)
   }, [initial, open])
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const handleSave = () => {
-    onSave({ ...form, expiry_date: form.expiry_date || null })
+    onSave({ ...form, expiry_date: form.expiry_date || null, categoryId: Number(form.categoryId || DEFAULT_UNCATEGORIZED_ID) })
     onClose()
   }
 
@@ -34,6 +34,19 @@ export default function IngredientForm({ open, onClose, onSave, initial }) {
           <div>
             <Label>Name</Label>
             <Input value={form.name} onChange={(e) => set('name', e.target.value)} className="mt-1" />
+          </div>
+          <div>
+            <Label>Category</Label>
+            <Select value={String(form.categoryId || DEFAULT_UNCATEGORIZED_ID)} onValueChange={(v) => set('categoryId', Number(v))}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {categoriesForSelect.map((category) => (
+                  <SelectItem key={category.id} value={String(category.id)}>
+                    {category.emoji} {category.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

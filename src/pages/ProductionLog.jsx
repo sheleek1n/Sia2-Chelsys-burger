@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
@@ -19,6 +19,7 @@ const STATUS_CONFIG = {
   low:      { badge: '🟡 Low',      cardCls: 'border-amber-400 bg-amber-50/40', badgeCls: 'bg-amber-100 text-amber-700' },
   critical: { badge: '🔴 Critical', cardCls: 'border-red-400 bg-red-50/50',     badgeCls: 'bg-red-100 text-red-700' },
 }
+const DEFAULT_UNCATEGORIZED_ID = 7
 
 // ─── Item Card ───────────────────────────────────────────────────────
 function ItemCard({ item, onOpenPack }) {
@@ -131,13 +132,16 @@ export default function ProductionLog() {
   const activeName = user ? user.full_name : (cashierName ?? 'Cashier')
 
   const [items, setItems] = useState([])
+  const [categories, setCategories] = useState([])
+  const [categoryFilter, setCategoryFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)   // item being confirmed
   const [confirming, setConfirming] = useState(false)
 
   const loadItems = useCallback(() => {
-    api.ingredients.list().then((data) => {
-      setItems(data)
+    Promise.all([api.ingredients.list(), api.ingredientCategories.list()]).then(([ingredients, categoryRows]) => {
+      setItems(ingredients)
+      setCategories(categoryRows)
       setLoading(false)
     })
   }, [])
@@ -184,6 +188,55 @@ export default function ProductionLog() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   })
 
+  const categoryCounts = useMemo(() => {
+    const counts = {}
+    items.forEach((item) => {
+      const id = Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID)
+      counts[id] = (counts[id] || 0) + 1
+    })
+    return counts
+  }, [items])
+
+  const visibleCategoryTabs = useMemo(() => {
+    return categories
+      .filter((category) => (categoryCounts[Number(category.id)] || 0) > 0)
+      .sort((a, b) => {
+        if (Number(a.id) === DEFAULT_UNCATEGORIZED_ID) return 1
+        if (Number(b.id) === DEFAULT_UNCATEGORIZED_ID) return -1
+        return Number(a.order || 999) - Number(b.order || 999)
+      })
+      .map((category) => ({ ...category, count: categoryCounts[Number(category.id)] || 0 }))
+  }, [categories, categoryCounts])
+
+  const filteredItems = useMemo(() => {
+    if (categoryFilter === 'all') return [...items]
+    return items.filter((item) => Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID) === Number(categoryFilter))
+  }, [items, categoryFilter])
+
+  const groupedSections = useMemo(() => {
+    const grouped = {}
+    filteredItems.forEach((item) => {
+      const id = Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID)
+      grouped[id] = grouped[id] || []
+      grouped[id].push(item)
+    })
+
+    if (categoryFilter !== 'all') {
+      const selected = categories.find((c) => Number(c.id) === Number(categoryFilter))
+      if (!selected) return []
+      return [{ category: selected, items: grouped[Number(selected.id)] || [] }]
+    }
+
+    return [...categories]
+      .sort((a, b) => {
+        if (Number(a.id) === DEFAULT_UNCATEGORIZED_ID) return 1
+        if (Number(b.id) === DEFAULT_UNCATEGORIZED_ID) return -1
+        return Number(a.order || 999) - Number(b.order || 999)
+      })
+      .filter((category) => (grouped[Number(category.id)] || []).length > 0)
+      .map((category) => ({ category, items: grouped[Number(category.id)] || [] }))
+  }, [categories, filteredItems, categoryFilter])
+
   return (
     <div className="flex flex-col h-full gap-6">
       {/* ── Header ── */}
@@ -209,6 +262,28 @@ export default function ProductionLog() {
         </span>
       </div>
 
+      <div className="overflow-x-auto">
+        <div className="flex items-center gap-2 min-w-max pr-2">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('all')}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${categoryFilter === 'all' ? 'bg-[#B01010] text-white border-[#B01010]' : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'}`}
+          >
+            All ({items.length})
+          </button>
+          {visibleCategoryTabs.map((category) => (
+            <button
+              key={category.id}
+              type="button"
+              onClick={() => setCategoryFilter(String(category.id))}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap ${categoryFilter === String(category.id) ? 'bg-[#B01010] text-white border-[#B01010]' : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'}`}
+            >
+              {category.emoji} {category.name} ({category.count})
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Item Grid ── */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -220,9 +295,18 @@ export default function ProductionLog() {
           <p className="text-sm">No production items found. Ask your admin to add items.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {items.map((item) => (
-            <ItemCard key={item.id} item={item} onOpenPack={handleOpenPack} />
+        <div className="space-y-6">
+          {groupedSections.map((section) => (
+            <div key={section.category.id}>
+              <h2 className="text-sm font-semibold text-slate-700 mb-3">
+                {section.category.emoji} {section.category.name}
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {section.items.map((item) => (
+                  <ItemCard key={item.id} item={item} onOpenPack={handleOpenPack} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

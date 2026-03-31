@@ -4,6 +4,28 @@
 
 const STORAGE_KEY = 'chelsys_burger_data'
 const CURRENT_USER_KEY = 'chelsys_current_user'
+const DEFAULT_UNCATEGORIZED_ID = 7
+
+const DEFAULT_INGREDIENT_CATEGORIES = [
+  { id: 1, name: 'Proteins', emoji: '🥩', order: 1 },
+  { id: 2, name: 'Bread & Buns', emoji: '🍞', order: 2 },
+  { id: 3, name: 'Dairy', emoji: '🧀', order: 3 },
+  { id: 4, name: 'Sauces & Condiments', emoji: '🥫', order: 4 },
+  { id: 5, name: 'Sides & Extras', emoji: '🍟', order: 5 },
+  { id: 6, name: 'Packaging', emoji: '🧴', order: 6 },
+  { id: 7, name: 'Uncategorized', emoji: '📦', order: 99 },
+]
+
+const SEEDED_CATEGORY_BY_INGREDIENT_NAME = {
+  'Beef Patty': 1,
+  'Chicken Fillets': 1,
+  'Burger Buns': 2,
+  'Cheese Slices': 3,
+  'Mayonnaise': 3,
+  'Ketchup': 4,
+  'Spicy Sauce': 4,
+  'Fries': 5,
+}
 
 function load() {
   try {
@@ -19,15 +41,16 @@ function load() {
       { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: new Date().toISOString().split('T')[0], items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299 }] },
     ],
     // Unified ingredients — single source of truth for both Admin Inventory and Cashier Production Log
+    ingredientCategories: [...DEFAULT_INGREDIENT_CATEGORIES],
     ingredients: [
-      { id: 'ing_1', name: 'Beef Patty',       unit: 'pcs',        current_stock: 50,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.', expiry_date: null },
-      { id: 'ing_2', name: 'Burger Buns',      unit: 'pack of 24', current_stock: 80,  warning_level: 20, cost_per_unit: 8,   supplier: 'Bakery', expiry_date: null },
-      { id: 'ing_3', name: 'Ketchup',          unit: '1kg bag',    current_stock: 2,   warning_level: 3,  cost_per_unit: 120, supplier: 'Condiments Inc.', expiry_date: null },
-      { id: 'ing_4', name: 'Spicy Sauce',      unit: '1kg bag',    current_stock: 1,   warning_level: 2,  cost_per_unit: 95,  supplier: 'Condiments Inc.', expiry_date: null },
-      { id: 'ing_5', name: 'Mayonnaise',       unit: '1kg bag',    current_stock: 5,   warning_level: 2,  cost_per_unit: 90,  supplier: 'Condiments Inc.', expiry_date: null },
-      { id: 'ing_6', name: 'Cheese Slices',    unit: 'pack of 20', current_stock: 10,  warning_level: 4,  cost_per_unit: 75,  supplier: 'Dairy Best', expiry_date: null },
-      { id: 'ing_7', name: 'Fries',            unit: '1kg bag',    current_stock: 15,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro', expiry_date: null },
-      { id: 'ing_8', name: 'Chicken Fillets',  unit: 'pack of 10', current_stock: 20,  warning_level: 5,  cost_per_unit: 450, supplier: 'Poultry Farm', expiry_date: null },
+      { id: 'ing_1', name: 'Beef Patty',       unit: 'pcs',        current_stock: 50,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.', expiry_date: null, categoryId: 1 },
+      { id: 'ing_2', name: 'Burger Buns',      unit: 'pack of 24', current_stock: 80,  warning_level: 20, cost_per_unit: 8,   supplier: 'Bakery', expiry_date: null, categoryId: 2 },
+      { id: 'ing_3', name: 'Ketchup',          unit: '1kg bag',    current_stock: 2,   warning_level: 3,  cost_per_unit: 120, supplier: 'Condiments Inc.', expiry_date: null, categoryId: 4 },
+      { id: 'ing_4', name: 'Spicy Sauce',      unit: '1kg bag',    current_stock: 1,   warning_level: 2,  cost_per_unit: 95,  supplier: 'Condiments Inc.', expiry_date: null, categoryId: 4 },
+      { id: 'ing_5', name: 'Mayonnaise',       unit: '1kg bag',    current_stock: 5,   warning_level: 2,  cost_per_unit: 90,  supplier: 'Condiments Inc.', expiry_date: null, categoryId: 3 },
+      { id: 'ing_6', name: 'Cheese Slices',    unit: 'pack of 20', current_stock: 10,  warning_level: 4,  cost_per_unit: 75,  supplier: 'Dairy Best', expiry_date: null, categoryId: 3 },
+      { id: 'ing_7', name: 'Fries',            unit: '1kg bag',    current_stock: 15,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro', expiry_date: null, categoryId: 5 },
+      { id: 'ing_8', name: 'Chicken Fillets',  unit: 'pack of 10', current_stock: 20,  warning_level: 5,  cost_per_unit: 450, supplier: 'Poultry Farm', expiry_date: null, categoryId: 1 },
     ],
     menuItems: [
       { id: 'seed_menu_1', name: 'Classic Burger',       category: 'burger', price: 299, is_available: true },
@@ -59,6 +82,24 @@ if (!db.inventoryLogs) {
 
 if ((db.ingredients || []).some((item) => item.expiry_date === undefined)) {
   db.ingredients = (db.ingredients || []).map((item) => ({ ...item, expiry_date: item.expiry_date ?? null }))
+  save(db)
+}
+
+if (!Array.isArray(db.ingredientCategories) || db.ingredientCategories.length === 0) {
+  db.ingredientCategories = [...DEFAULT_INGREDIENT_CATEGORIES]
+  save(db)
+}
+
+if (!(db.ingredientCategories || []).some((c) => Number(c.id) === DEFAULT_UNCATEGORIZED_ID)) {
+  db.ingredientCategories = [...(db.ingredientCategories || []), DEFAULT_INGREDIENT_CATEGORIES.find((c) => c.id === DEFAULT_UNCATEGORIZED_ID)]
+  save(db)
+}
+
+if ((db.ingredients || []).some((item) => item.categoryId === undefined || item.categoryId === null)) {
+  db.ingredients = (db.ingredients || []).map((item) => ({
+    ...item,
+    categoryId: item.categoryId ?? SEEDED_CATEGORY_BY_INGREDIENT_NAME[item.name] ?? DEFAULT_UNCATEGORIZED_ID,
+  }))
   save(db)
 }
 
@@ -179,6 +220,87 @@ export const api = {
 
   // ── Unified Ingredients ──────────────────────────────────────────────────
   // Single source of truth used by both Admin Products page and Cashier Production Log.
+  ingredientCategories: {
+    list() {
+      const list = [...(db.ingredientCategories || [])].sort((a, b) => {
+        if (Number(a.id) === DEFAULT_UNCATEGORIZED_ID) return 1
+        if (Number(b.id) === DEFAULT_UNCATEGORIZED_ID) return -1
+        return Number(a.order || 999) - Number(b.order || 999)
+      })
+      return Promise.resolve(list)
+    },
+    create({ name, emoji }) {
+      const currentUser = getStoredUser()
+      if (!currentUser || currentUser.role !== 'admin') {
+        return Promise.reject(new Error('Admin access required'))
+      }
+      if (!name || !String(name).trim()) {
+        return Promise.reject(new Error('Category name is required'))
+      }
+
+      const existing = db.ingredientCategories || []
+      const nextId = existing.length ? Math.max(...existing.map((c) => Number(c.id) || 0)) + 1 : 1
+      const maxOrder = existing.length
+        ? Math.max(...existing.filter((c) => Number(c.id) !== DEFAULT_UNCATEGORIZED_ID).map((c) => Number(c.order) || 0), 0)
+        : 0
+      const row = {
+        id: nextId,
+        name: String(name).trim(),
+        emoji: emoji || '📦',
+        order: maxOrder + 1,
+      }
+      db.ingredientCategories = [...existing, row]
+      save(db)
+      return Promise.resolve(row)
+    },
+    update(id, data) {
+      const currentUser = getStoredUser()
+      if (!currentUser || currentUser.role !== 'admin') {
+        return Promise.reject(new Error('Admin access required'))
+      }
+      const categoryId = Number(id)
+      db.ingredientCategories = db.ingredientCategories || []
+      const i = db.ingredientCategories.findIndex((c) => Number(c.id) === categoryId)
+      if (i < 0) return Promise.resolve(null)
+
+      const nextName = data?.name !== undefined ? String(data.name).trim() : db.ingredientCategories[i].name
+      if (!nextName) {
+        return Promise.reject(new Error('Category name is required'))
+      }
+
+      db.ingredientCategories[i] = {
+        ...db.ingredientCategories[i],
+        ...data,
+        name: nextName,
+      }
+      save(db)
+      return Promise.resolve(db.ingredientCategories[i])
+    },
+    delete(id) {
+      const currentUser = getStoredUser()
+      if (!currentUser || currentUser.role !== 'admin') {
+        return Promise.reject(new Error('Admin access required'))
+      }
+      const categoryId = Number(id)
+      db.ingredientCategories = db.ingredientCategories || []
+      const category = db.ingredientCategories.find((c) => Number(c.id) === categoryId)
+      if (!category) return Promise.resolve()
+
+      if (categoryId === DEFAULT_UNCATEGORIZED_ID || String(category.name).toLowerCase() === 'uncategorized') {
+        return Promise.reject(new Error('Uncategorized cannot be deleted'))
+      }
+
+      const hasAssigned = (db.ingredients || []).some((item) => Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID) === categoryId)
+      if (hasAssigned) {
+        return Promise.reject(new Error('Remove or reassign ingredients before deleting this category'))
+      }
+
+      db.ingredientCategories = db.ingredientCategories.filter((c) => Number(c.id) !== categoryId)
+      save(db)
+      return Promise.resolve()
+    },
+  },
+
   ingredients: {
     getExpiryStatus(expiry_date) {
       return getExpiryStatus(expiry_date)
@@ -190,7 +312,12 @@ export const api = {
       return Promise.resolve((db.ingredients || []).find((x) => x.id === id) ?? null)
     },
     create(data) {
-      const row = { id: uid(), expiry_date: null, ...data }
+      const row = {
+        id: uid(),
+        expiry_date: null,
+        categoryId: Number(data?.categoryId ?? DEFAULT_UNCATEGORIZED_ID),
+        ...data,
+      }
       db.ingredients = db.ingredients || []
       db.ingredients.push(row)
       save(db)
@@ -226,7 +353,11 @@ export const api = {
       const i = db.ingredients.findIndex((x) => x.id === id)
       if (i < 0) return Promise.resolve(null)
       const oldItem = { ...db.ingredients[i] }
-      db.ingredients[i] = { ...db.ingredients[i], ...data }
+      db.ingredients[i] = {
+        ...db.ingredients[i],
+        ...data,
+        ...(data.categoryId !== undefined ? { categoryId: Number(data.categoryId) } : {}),
+      }
       save(db)
 
       // Build detail string showing what changed
@@ -238,6 +369,10 @@ export const api = {
       if (data.cost_per_unit !== undefined && data.cost_per_unit !== oldItem.cost_per_unit) changes.push(`cost: ₱${oldItem.cost_per_unit} → ₱${data.cost_per_unit}`)
       if (data.supplier !== undefined && data.supplier !== oldItem.supplier) changes.push(`supplier: ${oldItem.supplier} → ${data.supplier}`)
       if (data.expiry_date !== undefined && data.expiry_date !== oldItem.expiry_date) changes.push(`expiry date: ${oldItem.expiry_date || 'none'} → ${data.expiry_date || 'none'}`)
+      if (data.categoryId !== undefined && Number(data.categoryId) !== Number(oldItem.categoryId)) {
+        const categoryById = (db.ingredientCategories || []).reduce((acc, c) => ({ ...acc, [Number(c.id)]: c.name }), {})
+        changes.push(`category: ${categoryById[Number(oldItem.categoryId)] || 'Uncategorized'} → ${categoryById[Number(data.categoryId)] || 'Uncategorized'}`)
+      }
 
       const detailStr = changes.length > 0 ? `Updated ${oldItem.name}: ${changes.join(', ')}` : `Updated ${oldItem.name}`
 
@@ -563,6 +698,164 @@ export const api = {
         })
       }
 
+      save(db)
+      return Promise.resolve(row)
+    },
+    receive(data) {
+      const {
+        sourceType = 'direct',
+        purchaseOrderId,
+        supplier,
+        receivedBy = 'Admin',
+        notes,
+        receivedAt,
+        items = [],
+      } = data || {}
+
+      db.ingredients = db.ingredients || []
+      db.stockLogs = db.stockLogs || []
+      db.purchaseOrders = db.purchaseOrders || []
+      db.deliveries = db.deliveries || []
+
+      let po = null
+      if (sourceType === 'po') {
+        po = db.purchaseOrders.find((x) => x.id === purchaseOrderId)
+        if (!po) return Promise.reject(new Error('PO not found'))
+      }
+
+      const normalizedItems = []
+      let hasDiscrepancy = false
+
+      items.forEach((line) => {
+        const ingredientIndex = db.ingredients.findIndex((x) => x.id === line.ingredientId)
+        if (ingredientIndex < 0) return
+
+        const ingredient = db.ingredients[ingredientIndex]
+        const quantityOrdered = Number(line.quantityOrdered || 0)
+        const quantityReceived = Number(line.quantityReceived || 0)
+        const discrepancy = quantityReceived - quantityOrdered
+        const oldStock = Number(ingredient.current_stock || 0)
+        const newStock = oldStock + quantityReceived
+
+        db.ingredients[ingredientIndex] = {
+          ...ingredient,
+          current_stock: newStock,
+          ...(line.expiry_date ? { expiry_date: line.expiry_date } : {}),
+        }
+
+        const stockLogEntry = {
+          id: uid(),
+          itemId: ingredient.id,
+          itemName: ingredient.name,
+          action: 'received',
+          quantity: quantityReceived,
+          note: sourceType === 'po' && po ? `PO ${po.po_number}` : `Direct Delivery (${supplier || 'supplier'})`,
+          loggedBy: receivedBy,
+          createdAt: new Date().toISOString(),
+        }
+        db.stockLogs.push(stockLogEntry)
+
+        createLog({
+          action: 'delivery_received',
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          performedBy: receivedBy,
+          details: `Received ${quantityReceived} ${ingredient.unit} from ${supplier || po?.supplier || 'supplier'}${po ? ` (PO: ${po.po_number})` : ''}`,
+          previousValue: `${oldStock} ${ingredient.unit}`,
+          newValue: `${newStock} ${ingredient.unit}`,
+          severity: 'info',
+        })
+
+        if (line.expiry_date) {
+          const formattedDate = formatDateForLog(line.expiry_date)
+          createLog({
+            action: 'expiry_added',
+            ingredientId: ingredient.id,
+            ingredientName: ingredient.name,
+            performedBy: receivedBy,
+            details: `Expiry date updated from delivery batch: ${formattedDate}`,
+            newValue: formattedDate,
+            severity: 'info',
+          })
+        }
+
+        if (sourceType === 'po' && discrepancy !== 0) {
+          hasDiscrepancy = true
+          if (discrepancy < 0) {
+            createLog({
+              action: 'delivery_discrepancy',
+              ingredientId: ingredient.id,
+              ingredientName: ingredient.name,
+              performedBy: receivedBy,
+              details: `Short delivery - ordered ${quantityOrdered}, received ${quantityReceived} (short by ${Math.abs(discrepancy)})`,
+              previousValue: `${quantityOrdered} ordered`,
+              newValue: `${quantityReceived} received`,
+              severity: 'warning',
+            })
+          } else {
+            createLog({
+              action: 'delivery_discrepancy',
+              ingredientId: ingredient.id,
+              ingredientName: ingredient.name,
+              performedBy: receivedBy,
+              details: `Over delivery - ordered ${quantityOrdered}, received ${quantityReceived} (over by ${discrepancy})`,
+              previousValue: `${quantityOrdered} ordered`,
+              newValue: `${quantityReceived} received`,
+              severity: 'warning',
+            })
+          }
+        }
+
+        normalizedItems.push({
+          ingredientId: ingredient.id,
+          ingredientName: line.ingredientName || ingredient.name,
+          quantityOrdered,
+          quantityReceived,
+          unitCost: Number(line.unitCost || ingredient.cost_per_unit || 0),
+          totalCost: Number(quantityReceived * Number(line.unitCost || ingredient.cost_per_unit || 0)),
+          expiry_date: line.expiry_date || null,
+          discrepancy,
+        })
+      })
+
+      if (po) {
+        const status = hasDiscrepancy ? 'partially_received' : 'received'
+        const updatedPoItems = (po.items || []).map((poItem) => {
+          const receivedLine = normalizedItems.find((x) => x.ingredientId === poItem.ingredientId)
+          return {
+            ...poItem,
+            quantityReceived: receivedLine ? receivedLine.quantityReceived : 0,
+            expiry_date: receivedLine?.expiry_date || null,
+            discrepancy: receivedLine?.discrepancy || 0,
+          }
+        })
+
+        const poIndex = db.purchaseOrders.findIndex((x) => x.id === po.id)
+        db.purchaseOrders[poIndex] = {
+          ...po,
+          status,
+          received_at: receivedAt || new Date().toISOString(),
+          received_by: receivedBy,
+          items: updatedPoItems,
+        }
+      }
+
+      const totalValue = normalizedItems.reduce((sum, row) => sum + Number(row.totalCost || 0), 0)
+      const row = {
+        id: uid(),
+        ref: sourceType === 'po' ? undefined : `DIR-${Date.now().toString(36).toUpperCase()}`,
+        supplier: supplier || po?.supplier || 'supplier',
+        receivedAt: receivedAt || new Date().toISOString(),
+        receivedBy,
+        notes: notes || null,
+        purchaseOrderId: po ? po.po_number : 'Direct',
+        purchaseOrderRefId: po ? po.id : null,
+        hasDiscrepancy,
+        totalValue,
+        items: normalizedItems,
+      }
+
+      db.deliveries.push(row)
       save(db)
       return Promise.resolve(row)
     },

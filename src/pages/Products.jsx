@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { api } from '@/api'
-import { Plus, Pencil, Trash2, AlertTriangle, ToggleLeft, ToggleRight, Search, ClipboardList, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertTriangle, ToggleLeft, ToggleRight, Search, ClipboardList, ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -27,6 +27,7 @@ const ACTION_BADGE_STYLES = {
   pack_opened:        'bg-gray-100 text-gray-700 border-gray-200',
   stock_adjusted:     'bg-blue-100 text-blue-700 border-blue-200',
   delivery_received:  'bg-green-100 text-green-700 border-green-200',
+  delivery_discrepancy: 'bg-orange-100 text-orange-700 border-orange-200',
   low_stock:          'bg-yellow-100 text-yellow-800 border-yellow-200',
   item_added:         'bg-teal-100 text-teal-700 border-teal-200',
   item_edited:        'bg-indigo-100 text-indigo-700 border-indigo-200',
@@ -40,6 +41,7 @@ const ACTION_LABELS = {
   pack_opened:        'PACK OPENED',
   stock_adjusted:     'STOCK ADJUSTED',
   delivery_received:  'DELIVERY',
+  delivery_discrepancy: 'DELIVERY ISSUE',
   low_stock:          'LOW STOCK',
   item_added:         'ITEM ADDED',
   item_edited:        'ITEM EDITED',
@@ -53,6 +55,7 @@ const ACTION_LABELS = {
 const ACTION_FILTER_GROUPS = {
   all:            null,
   stock_changes:  ['stock_adjusted', 'pack_opened', 'delivery_received'],
+  delivery_issues: ['delivery_discrepancy'],
   alerts:         ['low_stock'],
   admin_actions:  ['item_added', 'item_edited', 'item_deleted'],
   expiry_alerts:  ['expiring_soon', 'expired'],
@@ -71,6 +74,8 @@ const SEVERITY_ROW_BG = {
 }
 
 const ITEMS_PER_PAGE = 20
+const DEFAULT_UNCATEGORIZED_ID = 7
+const CATEGORY_EMOJI_OPTIONS = ['🥩', '🍞', '🧀', '🥫', '🍟', '🧴', '📦', '🥤', '🍔', '🌶️', '🧂', '🥚', '🧅', '🫙', '🛢️']
 
 // ── Helper: format timestamp ────────────────────────
 function formatLogTime(isoStr) {
@@ -118,10 +123,15 @@ export default function Products() {
 
   // Inventory State
   const [ingredients, setIngredients] = useState([])
+  const [ingredientCategories, setIngredientCategories] = useState([])
   const [ingredientSearch, setIngredientSearch] = useState('')
+  const [ingredientCategoryFilter, setIngredientCategoryFilter] = useState('all')
   const [ingredientFormOpen, setIngredientFormOpen] = useState(false)
   const [ingredientEditing, setIngredientEditing] = useState(null)
   const [ingredientLoading, setIngredientLoading] = useState(true)
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
+  const [categoryEditing, setCategoryEditing] = useState(null)
+  const [categoryForm, setCategoryForm] = useState({ name: '', emoji: '📦' })
   const [dismissedAlerts, setDismissedAlerts] = useState([])
   const [adjustOpen, setAdjustOpen] = useState(false)
   const [adjustingItem, setAdjustingItem] = useState(null)
@@ -138,6 +148,7 @@ export default function Products() {
 
   const loadMenu = () => api.menuItems.list().then((i) => { setMenuItems(i); setMenuLoading(false) })
   const loadIngredients = () => api.ingredients.list().then((i) => { setIngredients(i); setIngredientLoading(false) })
+  const loadIngredientCategories = () => api.ingredientCategories.list().then((data) => setIngredientCategories(data))
 
   const loadLogs = useCallback(() => {
     setLogLoading(true)
@@ -153,6 +164,7 @@ export default function Products() {
   useEffect(() => {
     loadMenu()
     loadIngredients()
+    loadIngredientCategories()
   }, [])
 
   const checkAndLogExpiryAlerts = useCallback(async () => {
@@ -279,6 +291,58 @@ export default function Products() {
     loadIngredients()
   }
 
+  const openCategoryManager = () => {
+    setCategoryEditing(null)
+    setCategoryForm({ name: '', emoji: '📦' })
+    setCategoryManagerOpen(true)
+  }
+
+  const startEditCategory = (category) => {
+    setCategoryEditing(category)
+    setCategoryForm({ name: category.name, emoji: category.emoji || '📦' })
+  }
+
+  const saveCategory = async () => {
+    if (!categoryForm.name.trim()) {
+      toast.error('Category name is required')
+      return
+    }
+
+    try {
+      if (categoryEditing) {
+        await api.ingredientCategories.update(categoryEditing.id, {
+          name: categoryForm.name.trim(),
+          emoji: categoryForm.emoji,
+        })
+        toast.success('Category updated')
+      } else {
+        await api.ingredientCategories.create({
+          name: categoryForm.name.trim(),
+          emoji: categoryForm.emoji,
+        })
+        toast.success('Category added')
+      }
+      setCategoryEditing(null)
+      setCategoryForm({ name: '', emoji: '📦' })
+      await loadIngredientCategories()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to save category')
+    }
+  }
+
+  const deleteCategory = async (category) => {
+    try {
+      await api.ingredientCategories.delete(category.id)
+      toast.success('Category deleted')
+      if (ingredientCategoryFilter === String(category.id)) {
+        setIngredientCategoryFilter('all')
+      }
+      await loadIngredientCategories()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to delete category')
+    }
+  }
+
   const openAdjustModal = (item) => {
     setAdjustingItem(item)
     setAdjustForm({ type: 'add', qty: 1, reason: '' })
@@ -398,30 +462,79 @@ export default function Products() {
     setDismissedAlerts((prev) => [...new Set([...prev, ...visibleAlerts.map((a) => a.ingredientId)])])
   }
 
+  const getStockSortPriority = (item) => {
+    const stock = Number(item.current_stock || 0)
+    const warn = Number(item.warning_level || 0)
+    if (stock <= 0) return 0
+    if (stock <= warn) return 1
+    return 2
+  }
+
   const filteredIngredients = useMemo(() => {
     const query = ingredientSearch.toLowerCase()
-    const list = ingredients.filter((i) => i.name?.toLowerCase().includes(query))
-
-    const getSortPriority = (item) => {
-      const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
-      const isCriticalStock = (item.current_stock || 0) <= 0
-      const isLow = (item.current_stock || 0) <= (item.warning_level || 0)
-
-      if (expiryStatus?.severity === 'critical') return 0
-      if (expiryStatus?.severity === 'warning' && expiryStatus.days <= 3) return 1
-      if (expiryStatus?.severity === 'warning') return 2
-      if (isCriticalStock) return 3
-      if (isLow) return 4
-      return 5
-    }
+    const list = ingredients.filter((i) => {
+      const matchesSearch = i.name?.toLowerCase().includes(query)
+      const itemCategoryId = Number(i.categoryId ?? DEFAULT_UNCATEGORIZED_ID)
+      const matchesCategory = ingredientCategoryFilter === 'all' || itemCategoryId === Number(ingredientCategoryFilter)
+      return matchesSearch && matchesCategory
+    })
 
     return list.sort((a, b) => {
-      const pA = getSortPriority(a)
-      const pB = getSortPriority(b)
+      const pA = getStockSortPriority(a)
+      const pB = getStockSortPriority(b)
       if (pA !== pB) return pA - pB
       return (a.name || '').localeCompare(b.name || '')
     })
-  }, [ingredients, ingredientSearch])
+  }, [ingredients, ingredientSearch, ingredientCategoryFilter])
+
+  const categoriesWithItems = useMemo(() => {
+    const counts = {}
+    ingredients.forEach((item) => {
+      const id = Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID)
+      counts[id] = (counts[id] || 0) + 1
+    })
+
+    return ingredientCategories
+      .filter((category) => counts[Number(category.id)] > 0)
+      .sort((a, b) => {
+        if (Number(a.id) === DEFAULT_UNCATEGORIZED_ID) return 1
+        if (Number(b.id) === DEFAULT_UNCATEGORIZED_ID) return -1
+        return Number(a.order || 999) - Number(b.order || 999)
+      })
+      .map((category) => ({ ...category, count: counts[Number(category.id)] || 0 }))
+  }, [ingredientCategories, ingredients])
+
+  const groupedIngredientSections = useMemo(() => {
+    const grouped = {}
+    filteredIngredients.forEach((item) => {
+      const id = Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID)
+      grouped[id] = grouped[id] || []
+      grouped[id].push(item)
+    })
+
+    if (ingredientCategoryFilter !== 'all') {
+      return []
+    }
+
+    const sections = [...ingredientCategories]
+      .sort((a, b) => {
+        if (Number(a.id) === DEFAULT_UNCATEGORIZED_ID) return 1
+        if (Number(b.id) === DEFAULT_UNCATEGORIZED_ID) return -1
+        return Number(a.order || 999) - Number(b.order || 999)
+      })
+      .filter((category) => (grouped[Number(category.id)] || []).length > 0 || Number(category.id) === DEFAULT_UNCATEGORIZED_ID)
+      .map((category) => ({
+        category,
+        items: (grouped[Number(category.id)] || []).sort((a, b) => {
+          const pA = getStockSortPriority(a)
+          const pB = getStockSortPriority(b)
+          if (pA !== pB) return pA - pB
+          return (a.name || '').localeCompare(b.name || '')
+        }),
+      }))
+
+    return sections
+  }, [filteredIngredients, ingredientCategories, ingredientCategoryFilter])
 
   const groupedMenu = CATEGORIES.reduce((acc, cat) => {
     acc[cat] = menuItems.filter((i) => i.category === cat)
@@ -435,9 +548,16 @@ export default function Products() {
     }
     if (activeTab === 'inventory') {
       return (
-        <Button onClick={() => { setIngredientEditing(null); setIngredientFormOpen(true) }}>
-          <Plus className="w-4 h-4 mr-2" /> Add Inventory Item
-        </Button>
+        <div className="flex gap-2">
+          {isAdmin && (
+            <Button variant="outline" onClick={openCategoryManager}>
+              <Settings className="w-4 h-4 mr-2" /> Categories
+            </Button>
+          )}
+          <Button onClick={() => { setIngredientEditing(null); setIngredientFormOpen(true) }}>
+            <Plus className="w-4 h-4 mr-2" /> Add Inventory Item
+          </Button>
+        </div>
       )
     }
     return null
@@ -575,13 +695,34 @@ export default function Products() {
         {/* INVENTORY TAB                                                  */}
         {/* ═══════════════════════════════════════════════════════════════ */}
         <TabsContent value="inventory" className="m-0 flex-1 flex flex-col outline-none">
-          <div className="mb-4">
+          <div className="mb-3">
             <Input 
               placeholder="Search inventory..." 
               value={ingredientSearch} 
               onChange={(e) => setIngredientSearch(e.target.value)} 
               className="max-w-sm"
             />
+          </div>
+          <div className="mb-4 overflow-x-auto">
+            <div className="flex items-center gap-2 min-w-max pr-2">
+              <button
+                type="button"
+                onClick={() => setIngredientCategoryFilter('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${ingredientCategoryFilter === 'all' ? 'bg-[#B01010] text-white border-[#B01010]' : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'}`}
+              >
+                All ({ingredients.length})
+              </button>
+              {categoriesWithItems.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => setIngredientCategoryFilter(String(category.id))}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors whitespace-nowrap ${ingredientCategoryFilter === String(category.id) ? 'bg-[#B01010] text-white border-[#B01010]' : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'}`}
+                >
+                  {category.emoji} {category.name} ({category.count})
+                </button>
+              ))}
+            </div>
           </div>
           <div className="bg-card border rounded-xl overflow-hidden shadow-sm flex-1">
             <table className="w-full text-sm">
@@ -601,7 +742,7 @@ export default function Products() {
               <tbody>
                 {ingredientLoading && <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">Loading...</td></tr>}
                 {!ingredientLoading && filteredIngredients.length === 0 && <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">No inventory items found.</td></tr>}
-                {filteredIngredients.map((item) => {
+                {ingredientCategoryFilter !== 'all' && filteredIngredients.map((item) => {
                   const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
                   const isExpired = expiryStatus?.severity === 'critical'
                   const isExpiringSoon = expiryStatus?.severity === 'warning'
@@ -630,18 +771,18 @@ export default function Products() {
                           {isCriticalStock ? 'Critical' : isLow ? 'Low Stock' : 'OK'}
                         </span>
                       </td>
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          {expiryStatus ? (
-                            <span
-                              className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
-                              title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
-                            >
-                              {expiryStatus.label}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </td>
+                      <td className="px-5 py-3 whitespace-nowrap">
+                        {expiryStatus ? (
+                          <span
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
+                            title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
+                          >
+                            {expiryStatus.label}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3">
                         <div className="flex gap-2">
                           <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
@@ -655,6 +796,74 @@ export default function Products() {
                     </tr>
                   )
                 })}
+                {ingredientCategoryFilter === 'all' && groupedIngredientSections.map((section) => (
+                  <Fragment key={`section-${section.category.id}`}>
+                    <tr key={`header-${section.category.id}`} className="bg-slate-50/80 border-b">
+                      <td colSpan={9} className="px-5 py-2.5 text-sm font-semibold text-slate-700">
+                        {section.category.emoji} {section.category.name}
+                      </td>
+                    </tr>
+                    {section.items.length === 0 && Number(section.category.id) === DEFAULT_UNCATEGORIZED_ID && (
+                      <tr key={`empty-${section.category.id}`} className="border-b">
+                        <td colSpan={9} className="px-5 py-3 text-sm text-muted-foreground">No uncategorized ingredients</td>
+                      </tr>
+                    )}
+                    {section.items.map((item) => {
+                      const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
+                      const isExpired = expiryStatus?.severity === 'critical'
+                      const isExpiringSoon = expiryStatus?.severity === 'warning'
+                      const isCriticalStock = (item.current_stock || 0) <= 0
+                      const isLow = item.current_stock <= item.warning_level
+                      return (
+                        <tr
+                          key={item.id}
+                          id={`ingredient-row-${item.id}`}
+                          ref={(el) => { ingredientRowRefs.current[item.id] = el }}
+                          className={`border-b last:border-0 hover:bg-muted/10 ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : isCriticalStock ? 'bg-red-50/70' : isLow ? 'bg-yellow-50/70' : ''}`}
+                        >
+                          <td className="px-5 py-3 font-medium">
+                            <div className="flex items-center gap-2">
+                              {isLow && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                              {item.name}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
+                          <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
+                          <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
+                          <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
+                          <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
+                          <td className="px-5 py-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCriticalStock ? 'bg-red-100 text-red-700' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                              {isCriticalStock ? 'Critical' : isLow ? 'Low Stock' : 'OK'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 whitespace-nowrap">
+                            {expiryStatus ? (
+                              <span
+                                className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
+                                title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
+                              >
+                                {expiryStatus.label}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3">
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
@@ -697,6 +906,7 @@ export default function Products() {
                 >
                   <option value="all">All Actions</option>
                   <option value="stock_changes">Stock Changes</option>
+                  <option value="delivery_issues">Delivery Issues</option>
                   <option value="alerts">Alerts</option>
                   <option value="expiry_alerts">Expiry Alerts</option>
                   <option value="admin_actions">Admin Actions</option>
@@ -898,7 +1108,84 @@ export default function Products() {
       </Dialog>
 
       {/* Ingredient Dialog */}
-      <IngredientForm open={ingredientFormOpen} onClose={() => { setIngredientFormOpen(false); setIngredientEditing(null) }} onSave={handleIngredientSave} initial={ingredientEditing} />
+      <Dialog open={categoryManagerOpen} onOpenChange={setCategoryManagerOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Ingredient Categories</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="border rounded-lg overflow-hidden">
+              {(ingredientCategories || []).map((category) => {
+                const isUncategorized = Number(category.id) === DEFAULT_UNCATEGORIZED_ID || String(category.name).toLowerCase() === 'uncategorized'
+                return (
+                  <div key={category.id} className="flex items-center justify-between px-4 py-2.5 border-b last:border-b-0">
+                    <div className="text-sm font-medium">
+                      {category.emoji} {category.name}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => startEditCategory(category)} className="text-muted-foreground hover:text-primary">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      {isUncategorized ? (
+                        <span className="text-xs text-muted-foreground px-1.5">-</span>
+                      ) : (
+                        <button type="button" onClick={() => deleteCategory(category)} className="text-muted-foreground hover:text-destructive">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="border rounded-lg p-4 space-y-3">
+              <p className="text-sm font-semibold">{categoryEditing ? 'Edit Category' : 'Add New Category'}</p>
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={categoryForm.name}
+                  onChange={(e) => setCategoryForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Category name"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Emoji</Label>
+                <div className="mt-2 grid grid-cols-8 gap-2">
+                  {CATEGORY_EMOJI_OPTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => setCategoryForm((f) => ({ ...f, emoji }))}
+                      className={`h-9 rounded-md border text-lg ${categoryForm.emoji === emoji ? 'border-[#B01010] bg-red-50' : 'border-input hover:bg-muted/30'}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                {categoryEditing && (
+                  <Button variant="outline" onClick={() => { setCategoryEditing(null); setCategoryForm({ name: '', emoji: '📦' }) }}>
+                    Cancel Edit
+                  </Button>
+                )}
+                <Button onClick={saveCategory}>{categoryEditing ? 'Update Category' : '+ Add New Category'}</Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ingredient Dialog */}
+      <IngredientForm
+        open={ingredientFormOpen}
+        onClose={() => { setIngredientFormOpen(false); setIngredientEditing(null) }}
+        onSave={handleIngredientSave}
+        initial={ingredientEditing}
+        categories={ingredientCategories}
+      />
 
       {/* Stock Adjust Dialog */}
       <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>

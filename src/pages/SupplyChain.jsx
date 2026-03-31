@@ -19,6 +19,7 @@ const StatusBadge = ({ status }) => {
   const config = {
     pending:   { bg: 'bg-gray-100', text: 'text-gray-700',   label: 'Pending' },
     ordered:   { bg: 'bg-blue-100', text: 'text-blue-700',   label: 'Ordered' },
+    partially_received: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Partially Received' },
     received:  { bg: 'bg-green-100', text: 'text-green-700', label: 'Received' },
     cancelled: { bg: 'bg-red-100', text: 'text-red-700',     label: 'Cancelled' },
   }
@@ -216,10 +217,10 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
   const [receivedDate, setReceivedDate] = useState('')
   const [notes, setNotes] = useState('')
   
-  // Array of { ingredientId, name, qtyOrdered, qtyReceived, unitCost }
+  // Array of { ingredientId, name, qtyOrdered, qtyReceived, unitCost, expiry_date, discrepancy }
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
-  const openPurchaseOrders = activePOs.filter((p) => ['pending', 'ordered'].includes(p.status))
+  const openPurchaseOrders = activePOs.filter((p) => ['pending', 'ordered', 'partially_received'].includes(p.status))
 
   // Auto-fill from PO when selected
   useEffect(() => {
@@ -232,8 +233,10 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
           ingredientId: i.ingredientId,
           name: i.ingredientName,
           qtyOrdered: i.quantityOrdered,
-          qtyReceived: i.quantityOrdered, // default to receiving exactly what was ordered
-          unitCost: i.unitCost
+          qtyReceived: i.quantityReceived ?? i.quantityOrdered,
+          unitCost: i.unitCost,
+          expiry_date: i.expiry_date || null,
+          discrepancy: (Number(i.quantityReceived ?? i.quantityOrdered) - Number(i.quantityOrdered || 0)),
         })))
       }
     } else if (sourceType === 'direct') {
@@ -251,7 +254,7 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
     if (!selectedDirectIngredientId) return
     const ing = ingredients.find((x) => String(x.id) === String(selectedDirectIngredientId))
     if (!ing) return
-    setItems([...items, { ingredientId: ing.id, name: ing.name, qtyOrdered: 0, qtyReceived: 1, unitCost: Number(ing.cost_per_unit) || 0 }])
+    setItems([...items, { ingredientId: ing.id, name: ing.name, qtyOrdered: 0, qtyReceived: 1, unitCost: Number(ing.cost_per_unit) || 0, expiry_date: null, discrepancy: 0 }])
     setSelectedDirectIngredientId('')
     toast.success(`${ing.name} added`)
   }
@@ -276,6 +279,8 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
       newItems[idx][field] = Math.max(0, Number(value) || 0)
     } else if (field === 'qtyReceived') {
       newItems[idx][field] = Math.max(0, Number(value) || 0)
+    } else if (field === 'expiry_date') {
+      newItems[idx][field] = value || null
     } else {
       newItems[idx][field] = value
     }
@@ -286,6 +291,9 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
         newItems[idx].unitCost = Number(ing.cost_per_unit) || 0
       }
     }
+    const ordered = Number(newItems[idx].qtyOrdered || 0)
+    const received = Number(newItems[idx].qtyReceived || 0)
+    newItems[idx].discrepancy = received - ordered
     setItems(newItems)
   }
 
@@ -304,71 +312,32 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
         ingredientName: row.name,
         quantityOrdered: Number(row.qtyOrdered) || 0,
         quantityReceived: Number(row.qtyReceived),
+        expiry_date: row.expiry_date || null,
+        discrepancy: Number(row.qtyReceived) - (Number(row.qtyOrdered) || 0),
         unitCost: Number(row.unitCost),
         totalCost: Number(row.qtyReceived) * Number(row.unitCost)
       }))
 
       if (sourceType === 'po') {
         const po = activePOs.find(p => p.id === selectedPOId)
-        
-        // 1. Mark PO as received (we override api approach to handle partial/custom receive qtys accurately)
-        // Wait, the API's `receive` method implicitly takes line item quantity as ordered. 
-        // We need to pass the custom quantities from the form instead.
-        // Let's manually receive the PO:
-        await api.purchaseOrders.update(po.id, {
-           status: 'received', 
-           received_at: new Date().toISOString(),
-           received_by: adminName,
-           // Update items array so it reflects exactly what was finally received
-           items: po.items.map(poItem => {
-             const FormItem = deliveryItems.find(di => di.ingredientId === poItem.ingredientId)
-             return { ...poItem, quantityReceived: FormItem ? FormItem.quantityReceived : 0 }
-           })
-        })
-
-        // 2. Adjust stock for each received item manually to avoid API double-counting
-        for (const line of deliveryItems) {
-           await api.ingredients.adjust(line.ingredientId, {
-             type: 'add',
-             qty: line.quantityReceived,
-             reason: `PO ${po.po_number} received`,
-             loggedBy: adminName
-           })
-        }
-
-        // 3. Create historical Delivery record
-        await api.deliveries.create({
+        await api.deliveries.receive({
+          sourceType: 'po',
+          purchaseOrderId: po.id,
           supplier: po.supplier,
-          receivedAt: new Date().toISOString(),
           receivedBy: adminName,
           notes,
-          purchaseOrderId: po.po_number,
-          totalValue: grandTotal,
-          items: deliveryItems
+          receivedAt: receivedDate ? new Date(receivedDate).toISOString() : new Date().toISOString(),
+          items: deliveryItems,
         })
 
       } else {
-        // DIRECT DELIVERY
-        // 1. Adjust stock
-        for (const line of deliveryItems) {
-           await api.ingredients.adjust(line.ingredientId, {
-             type: 'add',
-             qty: line.quantityReceived,
-             reason: `Direct Delivery (${supplier})`,
-             loggedBy: adminName
-           })
-        }
-        // 2. Create Delivery record
-        const dId = Date.now().toString(36).toUpperCase()
-        await api.deliveries.create({
-          ref: `DIR-${dId}`,
+        await api.deliveries.receive({
+          sourceType: 'direct',
           supplier,
-          receivedAt: new Date().toISOString(),
           receivedBy: adminName,
           notes,
-          purchaseOrderId: 'Direct',
-          totalValue: grandTotal,
-          items: deliveryItems
+          receivedAt: receivedDate ? new Date(receivedDate).toISOString() : new Date().toISOString(),
+          items: deliveryItems,
         })
       }
 
@@ -450,6 +419,7 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
                     <th className="px-3 py-2 font-medium min-w-[200px]">Inventory Item</th>
                     {sourceType === 'po' && <th className="px-3 py-2 font-medium w-28 text-right">Qty Ordered</th>}
                     <th className="px-3 py-2 font-medium w-36 border-l-2 border-l-green-200 bg-green-50/50">Qty Received</th>
+                    <th className="px-3 py-2 font-medium w-44">Expiry Date (optional)</th>
                     <th className="px-3 py-2 font-medium w-36 text-right">Unit Cost</th>
                     <th className="px-3 py-2 font-medium w-36 text-right">Line Total</th>
                     {sourceType === 'direct' && <th className="w-12 text-center"></th>}
@@ -470,15 +440,27 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
                       )}
                       
                       <td className="px-3 py-2 border-l-2 border-l-green-200 bg-green-50/20">
-                        <Input 
-                          type="number" min="0" 
-                          value={item.qtyReceived} 
-                          onChange={(e) => {
-                            const newItems = [...items]
-                            newItems[idx].qtyReceived = Math.max(0, Number(e.target.value) || 0)
-                            setItems(newItems)
-                          }} 
-                          className={`h-9 min-w-[80px] font-bold ${Number(item.qtyReceived) !== Number(item.qtyOrdered) && sourceType === 'po' ? 'text-amber-600 border-amber-300' : 'text-green-700 border-green-300'}`} 
+                        <div className="space-y-1">
+                          <Input
+                            type="number"
+                            min="0"
+                            value={item.qtyReceived}
+                            onChange={(e) => handleDirectItemChange(idx, 'qtyReceived', e.target.value)}
+                            className={`h-9 min-w-[80px] font-bold ${Number(item.qtyReceived) !== Number(item.qtyOrdered) && sourceType === 'po' ? 'text-amber-600 border-amber-300' : 'text-green-700 border-green-300'}`}
+                          />
+                          {sourceType === 'po' && Number(item.qtyReceived) !== Number(item.qtyOrdered) && (
+                            <p className={`text-[11px] font-medium ${item.discrepancy < 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                              {item.discrepancy < 0 ? `Short by ${Math.abs(item.discrepancy)}` : `Over by ${item.discrepancy}`}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="date"
+                          value={item.expiry_date || ''}
+                          onChange={(e) => handleDirectItemChange(idx, 'expiry_date', e.target.value)}
+                          className="h-9 min-w-[150px]"
                         />
                       </td>
                       <td className="px-3 py-2 text-right text-slate-500">
@@ -569,16 +551,27 @@ function DeliveryDetailModal({ delivery, onClose }) {
               <thead className="bg-slate-100 border-b">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">Item</th>
-                  <th className="px-3 py-2 text-right font-medium">Qty</th>
+                  <th className="px-3 py-2 text-right font-medium">Ordered</th>
+                  <th className="px-3 py-2 text-right font-medium">Received</th>
+                  <th className="px-3 py-2 text-left font-medium">Expiry</th>
                   <th className="px-3 py-2 text-right font-medium">Cost/Unit</th>
                   <th className="px-3 py-2 text-right font-medium">Line Total</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {delivery.items?.map((item, i) => (
-                  <tr key={i}>
+                  <tr key={i} className={item.discrepancy ? 'bg-amber-50/50' : ''}>
                     <td className="px-3 py-2">{item.ingredientName}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-green-700">+{item.quantityReceived}</td>
+                    <td className="px-3 py-2 text-right text-slate-500">{Number(item.quantityOrdered || 0)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-green-700">
+                      +{item.quantityReceived}
+                      {item.discrepancy !== 0 && (
+                        <span className={`ml-2 text-[11px] font-medium ${item.discrepancy < 0 ? 'text-red-600' : 'text-amber-700'}`}>
+                          {item.discrepancy < 0 ? `short ${Math.abs(item.discrepancy)}` : `over ${item.discrepancy}`}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{item.expiry_date ? formatDate(item.expiry_date) : '-'}</td>
                     <td className="px-3 py-2 text-right text-slate-500">{formatCurrency(item.unitCost)}</td>
                     <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.totalCost)}</td>
                   </tr>
@@ -586,7 +579,7 @@ function DeliveryDetailModal({ delivery, onClose }) {
               </tbody>
               <tfoot className="bg-slate-50 font-bold border-t">
                 <tr>
-                  <td colSpan={3} className="px-3 py-2 text-right text-slate-500">Total Value</td>
+                  <td colSpan={5} className="px-3 py-2 text-right text-slate-500">Total Value</td>
                   <td className="px-3 py-2 text-right">{formatCurrency(delivery.totalValue)}</td>
                 </tr>
               </tfoot>
@@ -608,7 +601,7 @@ export default function SupplyChain() {
   const [pos, setPos] = useState([])
   const [deliveries, setDeliveries] = useState([])
   
-  const [poFilter, setPoFilter] = useState('all') // all, pending, ordered, received
+  const [poFilter, setPoFilter] = useState('all') // all, pending, ordered, partially_received, received
 
   const [createPoOpen, setCreatePoOpen] = useState(false)
   const [receiveDelOpen, setReceiveDelOpen] = useState(false)
@@ -704,13 +697,13 @@ export default function SupplyChain() {
 
         <TabsContent value="po" className="m-0 flex-1 flex flex-col outline-none">
           <div className="flex gap-2 mb-4">
-            {['all', 'pending', 'ordered', 'received'].map(opt => (
+            {['all', 'pending', 'ordered', 'partially_received', 'received'].map(opt => (
               <button 
                 key={opt}
                 onClick={() => setPoFilter(opt)}
                 className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all capitalize border ${poFilter === opt ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
               >
-                {opt}
+                {opt === 'partially_received' ? 'partially received' : opt}
               </button>
             ))}
           </div>
@@ -734,7 +727,16 @@ export default function SupplyChain() {
                 {!loading && filteredPOs.length === 0 && <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No purchase orders found.</td></tr>}
                 {filteredPOs.map((po) => (
                   <tr key={po.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-5 py-3 font-bold text-slate-700">{po.po_number}</td>
+                    <td className="px-5 py-3 font-bold text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span>{po.po_number}</span>
+                        {(po.status === 'partially_received' || (po.items || []).some((item) => Number(item.discrepancy || 0) !== 0)) && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-orange-100 text-orange-700">
+                            Discrepancy
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-slate-500">{formatDate(po.created_at)}</td>
                     <td className="px-5 py-3 font-medium">{po.supplier}</td>
                     <td className="px-5 py-3 text-slate-500">{po.items?.length || 0} items</td>
@@ -787,7 +789,14 @@ export default function SupplyChain() {
                 {!loading && deliveries.length === 0 && <tr><td colSpan={8} className="p-0"><div className="w-full flex flex-col items-center justify-center gap-2 h-64 text-muted-foreground"><PackageCheck className="w-10 h-10 opacity-20" /> No delivery history yet.</div></td></tr>}
                 {deliveries.map((del) => (
                   <tr key={del.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => setViewDelivery(del)}>
-                    <td className="px-5 py-3 font-bold text-slate-700">{del.id}</td>
+                    <td className="px-5 py-3 font-bold text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span>{del.id}</span>
+                        {del.hasDiscrepancy && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-700">Warning</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-slate-500">{formatDate(del.receivedAt)}</td>
                     <td className="px-5 py-3 font-medium">{del.supplier}</td>
                     <td className="px-5 py-3 text-center">
