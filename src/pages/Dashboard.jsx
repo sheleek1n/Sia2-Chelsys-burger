@@ -8,6 +8,7 @@ import RevenueChart from '@/components/dashboard/RevenueChart'
 import TopItems from '@/components/dashboard/TopItems'
 import PageHeader from '@/components/shared/PageHeader'
 import { useAuth } from '@/lib/AuthContext'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 export default function Dashboard() {
   const { user } = useAuth()
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const [orders, setOrders] = useState([])
   const [ingredients, setIngredients] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
+  const [paymentFilter, setPaymentFilter] = useState('all')
 
   useEffect(() => {
     Promise.all([api.orders.list(500), api.ingredients.list()])
@@ -26,10 +28,14 @@ export default function Dashboard() {
   }, [])
 
   const today = new Date().toISOString().split('T')[0]
-  const todayOrders = orders.filter((o) => o.order_date === today && o.status === 'completed')
+  const completedOrders = orders.filter((o) => o.status === 'completed')
+  const todayCompletedOrders = completedOrders.filter((o) => o.order_date === today)
+  const todayOrders = todayCompletedOrders.filter((o) => paymentFilter === 'all' || (o.payment_method || 'cash') === paymentFilter)
   const todayRevenue = todayOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
   const todayOrderCount = todayOrders.length
   const avgOrderValue = todayOrderCount > 0 ? Math.round(todayRevenue / todayOrderCount) : 0
+  const todayCashSales = todayCompletedOrders.filter((o) => (o.payment_method || 'cash') === 'cash').reduce((sum, o) => sum + (o.total_amount || 0), 0)
+  const todayGcashSales = todayCompletedOrders.filter((o) => (o.payment_method || 'cash') === 'gcash').reduce((sum, o) => sum + (o.total_amount || 0), 0)
 
   // Chart Data
   let chartData = []
@@ -55,7 +61,7 @@ export default function Dashboard() {
       const date = subDays(new Date(), 6 - i)
       const dateStr = date.toISOString().split('T')[0]
       const rev = orders
-        .filter((o) => o.order_date === dateStr && o.status === 'completed')
+        .filter((o) => o.order_date === dateStr && o.status === 'completed' && (paymentFilter === 'all' || (o.payment_method || 'cash') === paymentFilter))
         .reduce((s, o) => s + (o.total_amount || 0), 0)
       return { label: format(date, 'MMM d'), revenue: rev }
     })
@@ -157,10 +163,31 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title="Sales Dashboard" subtitle={`Today, ${format(new Date(), 'MMMM d, yyyy')}`} />
+      <div className="mb-4 flex items-center justify-between rounded-xl border bg-card px-4 py-3">
+        <div className="text-sm text-muted-foreground">Report Filter</div>
+        <div className="w-44">
+          <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder="Payment" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="cash">Cash</SelectItem>
+              <SelectItem value="gcash">GCash</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <div className="grid grid-cols-3 gap-4 mb-6">
         <StatCard title="Total Revenue Today" value={`₱${todayRevenue.toLocaleString()}`} subtitle={`${todayOrderCount} orders`} icon={DollarSign} color="primary" />
         <StatCard title="Total Orders Today" value={todayOrderCount} subtitle="Completed orders" icon={ShoppingCart} color="orange" />
         <StatCard title="Average Order Value" value={`₱${avgOrderValue.toLocaleString()}`} subtitle="Per order" icon={TrendingUp} color="green" />
+      </div>
+      <div className="mb-6 rounded-xl border bg-card px-4 py-3 text-sm">
+        <span className="font-semibold">Payment Breakdown:</span>{' '}
+        <span className="text-green-700 font-medium">Cash: ₱{todayCashSales.toLocaleString()}</span>
+        <span className="mx-2 text-muted-foreground">/</span>
+        <span className="text-blue-700 font-medium">GCash: ₱{todayGcashSales.toLocaleString()}</span>
       </div>
       <div className="mb-6">
         <RevenueChart data={chartData} view={chartView} onViewChange={setChartView} />

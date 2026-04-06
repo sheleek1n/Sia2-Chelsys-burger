@@ -55,15 +55,15 @@ export default function IngredientForm({ open, onClose, onSave, initial, categor
             </div>
             <div>
               <Label>Current Stock</Label>
-              <Input type="number" value={form.current_stock} onChange={(e) => set('current_stock', Number(e.target.value) || 0)} className="mt-1" />
+              <Input type="number" value={form.current_stock} onFocus={(e) => e.target.select()} onChange={(e) => set('current_stock', Number(e.target.value) || 0)} className="mt-1" />
             </div>
             <div>
               <Label>Warning Level</Label>
-              <Input type="number" value={form.warning_level} onChange={(e) => set('warning_level', Number(e.target.value) || 0)} className="mt-1" />
+              <Input type="number" value={form.warning_level} onFocus={(e) => e.target.select()} onChange={(e) => set('warning_level', Number(e.target.value) || 0)} className="mt-1" />
             </div>
             <div>
               <Label>Cost per Unit (₱)</Label>
-              <Input type="number" value={form.cost_per_unit} onChange={(e) => set('cost_per_unit', Number(e.target.value) || 0)} className="mt-1" />
+              <Input type="number" value={form.cost_per_unit} onFocus={(e) => e.target.select()} onChange={(e) => set('cost_per_unit', Number(e.target.value) || 0)} className="mt-1" />
             </div>
           </div>
           <div>

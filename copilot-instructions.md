@@ -93,10 +93,10 @@ if (user?.role !== 'admin') return <AccessDenied />
 - Subtotal → Discount (manual peso amount, optional) → Total.
 - No VAT or tax computation.
 
-### Payment Methods — **Cash or E-Bank only**
+### Payment Methods — **Cash or GCash only**
 - **Cash:** cashier enters amount tendered → system shows change in real time.
   - Block submission if tendered < total.
-- **E-Bank:** (GCash, Maya, mobile banking) — no change needed, change field hidden.
+- **GCash:** cashier enters reference number, change field hidden.
 
 ### Place Order Button
 - Disabled if cart is empty or cash tendered < total.
@@ -113,7 +113,7 @@ if (user?.role !== 'admin') return <AccessDenied />
 - Table: Order #, Time, Items summary, Total, Payment method.
 - Most recent first.
 - Total transaction count + total revenue at bottom.
-- Filter by payment method (All / Cash / E-Bank).
+- Filter by payment method (All / Cash / GCash).
 
 ### Data Shape
 ```js
@@ -127,7 +127,7 @@ Order {
   subtotal: number
   discount: number
   total: number
-  paymentMethod: "cash" | "ebank"
+  paymentMethod: "cash" | "gcash"
   amountPaid: number
   change: number
 }

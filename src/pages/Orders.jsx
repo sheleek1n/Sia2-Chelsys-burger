@@ -7,12 +7,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, ReceiptText, X, Printer, AlertTriangle, FilePenLine, Ban } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
+import { getMenuItemIcon } from '@/utils/menuItemIcons'
 
 const statusColors = {
   completed: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-700',
   refunded: 'bg-yellow-100 text-yellow-700',
   voided:    'bg-gray-200 text-gray-500',
+}
+
+const paymentBadgeColors = {
+  cash: 'bg-green-100 text-green-700',
+  gcash: 'bg-blue-100 text-blue-700',
+}
+
+function getPaymentLabel(method) {
+  return method === 'gcash' ? 'GCash' : 'Cash'
 }
 
 const PRESET_NOTES = [
@@ -29,8 +39,8 @@ function ReceiptModal({ order, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
+      <div className="bg-white rounded-lg shadow-xl w-[95vw] max-w-md mx-4 max-h-[92vh] overflow-hidden flex flex-col">
+        <div className="p-4 sm:p-6 flex-1 overflow-y-auto">
           <div className="flex justify-end mb-2">
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
               <X className="w-5 h-5" />
@@ -47,7 +57,10 @@ function ReceiptModal({ order, onClose }) {
             <div className="border-t border-b py-2 mb-2">
               {(order.items || []).map((item, i) => (
                 <div key={i} className="flex justify-between mb-1">
-                  <span>{item.menu_item_name} x{item.quantity}</span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="text-sm">{getMenuItemIcon(item)}</span>
+                    <span>{item.menu_item_name} x{item.quantity}</span>
+                  </span>
                   <span>₱{(item.subtotal || 0).toFixed(2)}</span>
                 </div>
               ))}
@@ -60,8 +73,14 @@ function ReceiptModal({ order, onClose }) {
               </div>
               <div className="flex justify-between">
                 <span>Payment:</span>
-                <span>{order.payment_method === 'cash' ? 'Cash' : 'E-Bank'}</span>
+                <span>{getPaymentLabel(order.payment_method)}</span>
               </div>
+              {order.payment_method === 'gcash' && (
+                <div className="flex justify-between">
+                  <span>Reference #:</span>
+                  <span>{order.gcash_reference || '-'}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -234,6 +253,7 @@ export default function Orders() {
   const [orders, setOrders] = useState([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [paymentFilter, setPaymentFilter] = useState('all')
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -276,8 +296,9 @@ export default function Orders() {
       o.order_number?.toLowerCase().includes(search.toLowerCase()) ||
       o.cashier_name?.toLowerCase().includes(search.toLowerCase())
     const matchStatus = statusFilter === 'all' || o.status === statusFilter
+    const matchPayment = paymentFilter === 'all' || (o.payment_method || 'cash') === paymentFilter
     const matchFlagged = !flaggedOnly || !!o.incidentNote
-    return matchSearch && matchStatus && matchFlagged
+    return matchSearch && matchStatus && matchPayment && matchFlagged
   })
 
   const totalRevenue = filtered.filter((o) => o.status === 'completed').reduce((s, o) => s + (o.total_amount || 0), 0)
@@ -301,6 +322,16 @@ export default function Orders() {
             <SelectItem value="cancelled">Cancelled</SelectItem>
             <SelectItem value="refunded">Refunded</SelectItem>
             <SelectItem value="voided">Voided</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="Payment" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Payment</SelectItem>
+            <SelectItem value="cash">Cash</SelectItem>
+            <SelectItem value="gcash">GCash</SelectItem>
           </SelectContent>
         </Select>
         {/* Flagged Only Toggle */}
@@ -366,7 +397,16 @@ export default function Orders() {
                     <td className="px-5 py-4 text-muted-foreground">
                       {(o.items || []).length} items
                     </td>
-                    <td className="px-5 py-4 capitalize">{o.payment_method}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${paymentBadgeColors[o.payment_method] || paymentBadgeColors.cash}`}>
+                          {getPaymentLabel(o.payment_method)}
+                        </span>
+                        {o.payment_method === 'gcash' && o.gcash_reference && (
+                          <span className="text-[11px] text-muted-foreground">Ref: {o.gcash_reference}</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-right font-semibold">₱{(o.total_amount || 0).toFixed(2)}</td>
                     <td className="px-5 py-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[o.status]}`}>{o.status}</span>

@@ -1,21 +1,69 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Minus, Trash2, ShoppingCart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { CATEGORY_ICONS, getMenuItemIcon } from '@/utils/menuItemIcons'
 
 const PAYMENT_OPTIONS = [
   { value: 'cash', label: 'Cash' },
-  { value: 'ebank', label: 'E Bank' },
+  { value: 'gcash', label: 'GCash' },
 ]
+
+const CATEGORY_LABELS = {
+  all: 'All',
+  burger: 'Burgers',
+  chicken: 'Chicken',
+  sides: 'Sides',
+  drinks: 'Drinks',
+  combo: 'Combos',
+  dessert: 'Desserts',
+  snacks: 'Snacks',
+  other: 'Other',
+}
 
 export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   const [cart, setCart] = useState([])
   const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [activeCategory, setActiveCategory] = useState('all')
+  const [gcashReference, setGcashReference] = useState('')
+  const [paymentError, setPaymentError] = useState('')
+  const [amountTendered, setAmountTendered] = useState('')
   const [notes, setNotes] = useState('')
+  const gridTopRef = useRef(null)
 
-  const categories = [...new Set(menuItems.map((m) => m.category).filter(Boolean))]
+  const availableItems = useMemo(
+    () => menuItems.filter((item) => item.is_available !== false),
+    [menuItems]
+  )
+
+  const categories = useMemo(() => {
+    const preferredOrder = ['burger', 'chicken', 'sides', 'drinks', 'combo', 'dessert', 'snacks', 'other']
+    const available = [...new Set(availableItems.map((m) => m.category).filter(Boolean).map((cat) => cat.toLowerCase()))]
+    return [
+      ...preferredOrder.filter((cat) => available.includes(cat)),
+      ...available.filter((cat) => !preferredOrder.includes(cat)),
+    ]
+  }, [availableItems])
+
+  useEffect(() => {
+    if (activeCategory !== 'all' && !categories.includes(activeCategory)) {
+      setActiveCategory('all')
+    }
+  }, [activeCategory, categories])
+
+  useEffect(() => {
+    if (gridTopRef.current) {
+      gridTopRef.current.scrollIntoView({ behavior: 'auto', block: 'start' })
+    }
+  }, [activeCategory])
+
+  const filteredItems = useMemo(() => {
+    if (activeCategory === 'all') return availableItems
+    return availableItems.filter((item) => (item.category || '').toLowerCase() === activeCategory)
+  }, [activeCategory, availableItems])
 
   const addToCart = (item) => {
     setCart((prev) => {
@@ -28,7 +76,15 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
       }
       return [
         ...prev,
-        { menu_item_id: item.id, menu_item_name: item.name, quantity: 1, unit_price: item.price, subtotal: item.price },
+        {
+          menu_item_id: item.id,
+          menu_item_name: item.name,
+          quantity: 1,
+          unit_price: item.price,
+          subtotal: item.price,
+          category: item.category,
+          emoji: getMenuItemIcon(item),
+        },
       ]
     })
   }
@@ -64,15 +120,26 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   const removeItem = (id) => setCart((prev) => prev.filter((c) => c.menu_item_id !== id))
 
   const total = cart.reduce((sum, c) => sum + c.subtotal, 0)
+  const tenderedAmount = Number(amountTendered)
+  const changeAmount = Number.isFinite(tenderedAmount) ? tenderedAmount - total : 0
 
   const handleSubmit = () => {
     if (cart.length === 0) return
+
+    if (paymentMethod === 'gcash' && !gcashReference.trim()) {
+      setPaymentError('Please enter the GCash reference number')
+      return
+    }
+
     const orderNumber = `ORD-${Date.now().toString().slice(-6)}`
     onSubmit({
       order_number: orderNumber,
       items: cart,
       total_amount: total,
       payment_method: paymentMethod,
+      gcash_reference: paymentMethod === 'gcash' ? gcashReference.trim() : null,
+      amount_tendered: paymentMethod === 'cash' && amountTendered !== '' ? tenderedAmount : null,
+      change_amount: paymentMethod === 'cash' && amountTendered !== '' ? changeAmount : null,
       status: 'completed',
       order_date: new Date().toISOString().split('T')[0],
       created_at: new Date().toISOString(),
@@ -80,36 +147,88 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
     })
     setCart([])
     setNotes('')
+    setGcashReference('')
+    setPaymentError('')
+    setAmountTendered('')
   }
 
   return (
     <div className="grid grid-cols-3 gap-6 h-full">
       <div className="col-span-2 space-y-4">
-        {categories.map((cat) => (
-          <div key={cat}>
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2 capitalize">{cat}</h3>
-            <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
-              {menuItems
-                .filter((m) => m.category === cat && m.is_available !== false)
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => addToCart(item)}
-                    className="bg-card border rounded-xl p-4 text-left hover:border-primary hover:shadow-md transition-all group"
-                  >
-                    <p className="font-semibold text-sm group-hover:text-primary">{item.name}</p>
-                    <p className="text-primary font-bold text-base mt-1">₱{item.price.toFixed(2)}</p>
-                    <div className="mt-2 flex justify-end">
-                      <div className="bg-primary/10 text-primary rounded-full p-1">
+        <div className="overflow-x-auto whitespace-nowrap px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <div className="inline-flex items-center gap-2">
+            {['all', ...categories].map((categoryKey) => (
+              <button
+                key={categoryKey}
+                type="button"
+                onClick={() => setActiveCategory(categoryKey)}
+                className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${activeCategory === categoryKey ? 'bg-red-600 text-white' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+              >
+                {CATEGORY_LABELS[categoryKey] || categoryKey}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div ref={gridTopRef} />
+
+        {activeCategory === 'all' ? (
+          categories.map((cat) => {
+            const categoryItems = filteredItems.filter((item) => (item.category || '').toLowerCase() === cat)
+            if (categoryItems.length === 0) return null
+
+            return (
+              <div key={cat}>
+                <h3 className="text-base font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <span className="text-xl">{CATEGORY_ICONS[cat] || '🍽️'}</span>
+                  <span>{CATEGORY_LABELS[cat] || cat}</span>
+                </h3>
+                <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+                  {categoryItems.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => addToCart(item)}
+                      className="relative bg-card border rounded-xl p-4 min-h-[188px] text-center transition-all group flex flex-col items-center justify-center hover:border-primary hover:shadow-md"
+                    >
+                      <div className="text-4xl leading-none">
+                        {getMenuItemIcon(item)}
+                      </div>
+                      <p className="font-semibold text-sm mt-4 group-hover:text-primary leading-snug">{item.name}</p>
+                      <p className="text-primary font-bold text-base mt-1">₱{item.price.toFixed(2)}</p>
+                      <div className="absolute right-3 bottom-3 bg-primary/10 text-primary rounded-full p-1">
                         <Plus className="w-3 h-3" />
                       </div>
-                    </div>
-                  </button>
-                ))}
-            </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })
+        ) : (
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+            {filteredItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => addToCart(item)}
+                className="relative bg-card border rounded-xl p-4 min-h-[188px] text-center transition-all group flex flex-col items-center justify-center hover:border-primary hover:shadow-md"
+              >
+                <div className="text-4xl leading-none">
+                  {getMenuItemIcon(item)}
+                </div>
+                <p className="font-semibold text-sm mt-4 group-hover:text-primary leading-snug">{item.name}</p>
+                <p className="text-primary font-bold text-base mt-1">₱{item.price.toFixed(2)}</p>
+                <div className="absolute right-3 bottom-3 bg-primary/10 text-primary rounded-full p-1">
+                  <Plus className="w-3 h-3" />
+                </div>
+              </button>
+            ))}
           </div>
-        ))}
-        {menuItems.length === 0 && (
+        )}
+
+        {availableItems.length > 0 && filteredItems.length === 0 && (
+          <div className="text-center text-muted-foreground py-12">No available menu items in this category.</div>
+        )}
+        {availableItems.length === 0 && (
           <div className="text-center text-muted-foreground py-12">No menu items yet. Add them in Menu Items.</div>
         )}
       </div>
@@ -169,7 +288,18 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
           </div>
           <div>
             <Label className="text-xs">Payment Method</Label>
-            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+            <Select
+              value={paymentMethod}
+              onValueChange={(value) => {
+                setPaymentMethod(value)
+                setPaymentError('')
+                if (value === 'cash') {
+                  setGcashReference('')
+                } else {
+                  setAmountTendered('')
+                }
+              }}
+            >
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder="Payment" />
               </SelectTrigger>
@@ -179,6 +309,42 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className={`overflow-hidden transition-all duration-200 ${paymentMethod === 'gcash' ? 'max-h-28 opacity-100' : 'max-h-0 opacity-0'}`}>
+            <Label className="text-xs">GCash Reference #</Label>
+            <Input
+              type="text"
+              value={gcashReference}
+              maxLength={20}
+              onChange={(e) => {
+                setGcashReference(e.target.value)
+                if (paymentError) setPaymentError('')
+              }}
+              placeholder="Enter reference number"
+              className="mt-1"
+            />
+            {paymentMethod === 'gcash' && paymentError && (
+              <p className="text-xs text-red-600 mt-1">{paymentError}</p>
+            )}
+          </div>
+          <div className={`overflow-hidden transition-all duration-200 ${paymentMethod === 'cash' ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+            <Label className="text-xs">Amount Tendered</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={amountTendered}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setAmountTendered(e.target.value)}
+              placeholder="Enter amount tendered"
+              className="mt-1"
+            />
+            <div className="flex justify-between items-center mt-2 text-sm">
+              <span className="text-muted-foreground">Change</span>
+              <span className={`font-semibold ${changeAmount < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                ₱{Number.isFinite(changeAmount) ? changeAmount.toFixed(2) : '0.00'}
+              </span>
+            </div>
           </div>
           <div>
             <Label className="text-xs">Notes (optional)</Label>

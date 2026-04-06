@@ -38,7 +38,7 @@ function load() {
       { id: '2', username: 'user', password: 'user123', role: 'cashier', full_name: 'Cashier User' },
     ],
     orders: [
-      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: new Date().toISOString().split('T')[0], items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299 }] },
+      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: new Date().toISOString().split('T')[0], items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299, emoji: '🍔' }] },
     ],
     // Unified ingredients — single source of truth for both Admin Inventory and Cashier Production Log
     ingredientCategories: [...DEFAULT_INGREDIENT_CATEGORIES],
@@ -53,11 +53,11 @@ function load() {
       { id: 'ing_8', name: 'Chicken Fillets',  unit: 'pack of 10', current_stock: 20,  warning_level: 5,  cost_per_unit: 450, supplier: 'Poultry Farm', expiry_date: null, categoryId: 1 },
     ],
     menuItems: [
-      { id: 'seed_menu_1', name: 'Classic Burger',       category: 'burger', price: 299, is_available: true },
-      { id: 'seed_menu_2', name: 'Cheese Burger',        category: 'burger', price: 329, is_available: true },
-      { id: 'seed_menu_3', name: 'Fries',                category: 'sides',  price: 89,  is_available: true },
-      { id: 'seed_menu_4', name: 'Coke (Regular)',       category: 'drinks', price: 49,  is_available: true },
-      { id: 'seed_menu_5', name: 'Burger + Fries Combo', category: 'combo',  price: 349, is_available: true },
+      { id: 'seed_menu_1', name: 'Classic Burger',       category: 'burger', price: 299, is_available: true, emoji: null },
+      { id: 'seed_menu_2', name: 'Cheese Burger',        category: 'burger', price: 329, is_available: true, emoji: null },
+      { id: 'seed_menu_3', name: 'Fries',                category: 'sides',  price: 89,  is_available: true, emoji: null },
+      { id: 'seed_menu_4', name: 'Coke (Regular)',       category: 'drinks', price: 49,  is_available: true, emoji: null },
+      { id: 'seed_menu_5', name: 'Burger + Fries Combo', category: 'combo',  price: 349, is_available: true, emoji: null },
     ],
     purchaseOrders: [],
     deliveries: [],
@@ -101,6 +101,70 @@ if ((db.ingredients || []).some((item) => item.categoryId === undefined || item.
     categoryId: item.categoryId ?? SEEDED_CATEGORY_BY_INGREDIENT_NAME[item.name] ?? DEFAULT_UNCATEGORIZED_ID,
   }))
   save(db)
+}
+
+if ((db.menuItems || []).some((item) => item.emoji === undefined)) {
+  db.menuItems = (db.menuItems || []).map((item) => ({
+    ...item,
+    emoji: item.emoji ?? null,
+  }))
+  save(db)
+}
+
+if ((db.purchaseOrders || []).some((po) => (po.items || []).some((item) => item.quantityReceived === undefined || item.discrepancy === undefined || item.unit === undefined))) {
+  const ingredientById = new Map((db.ingredients || []).map((item) => [item.id, item]))
+  db.purchaseOrders = (db.purchaseOrders || []).map((po) => ({
+    ...po,
+    items: (po.items || []).map((item) => {
+      const quantityOrdered = Number(item.quantityOrdered || 0)
+      const quantityReceived = Number(item.quantityReceived || 0)
+      const ingredientUnit = ingredientById.get(item.ingredientId)?.unit || 'units'
+      return {
+        ...item,
+        unit: item.unit || ingredientUnit,
+        quantityReceived,
+        discrepancy: item.discrepancy !== undefined ? Number(item.discrepancy || 0) : quantityReceived - quantityOrdered,
+      }
+    }),
+  }))
+  save(db)
+}
+
+if ((db.deliveries || []).some((delivery) => delivery.isPartialCompletion === undefined || delivery.parentDeliveryId === undefined)) {
+  db.deliveries = (db.deliveries || []).map((delivery) => ({
+    ...delivery,
+    isPartialCompletion: Boolean(delivery.isPartialCompletion),
+    parentDeliveryId: delivery.parentDeliveryId ?? null,
+  }))
+  save(db)
+}
+
+function normalizePaymentMethod(value) {
+  return value === 'cash' ? 'cash' : 'gcash'
+}
+
+function normalizeGcashReference(value) {
+  if (value === undefined || value === null) return null
+  const nextValue = String(value).trim().slice(0, 20)
+  return nextValue || null
+}
+
+if ((db.orders || []).some((order) => !['cash', 'gcash'].includes(order.payment_method) || order.gcash_reference === undefined)) {
+  db.orders = (db.orders || []).map((order) => {
+    const payment_method = normalizePaymentMethod(order.payment_method)
+    return {
+      ...order,
+      payment_method,
+      gcash_reference: payment_method === 'gcash' ? normalizeGcashReference(order.gcash_reference) : null,
+    }
+  })
+  save(db)
+}
+
+function normalizeEmojiValue(value) {
+  if (value === undefined || value === null) return null
+  const nextValue = String(value).trim()
+  return nextValue || null
 }
 
 function uid() {
@@ -200,14 +264,37 @@ export const api = {
       return Promise.resolve(list.slice(0, limit))
     },
     create(data) {
-      const row = { id: uid(), ...data }
+      const payment_method = normalizePaymentMethod(data?.payment_method)
+      const row = {
+        id: uid(),
+        ...data,
+        payment_method,
+        gcash_reference: payment_method === 'gcash' ? normalizeGcashReference(data?.gcash_reference) : null,
+      }
       db.orders.push(row)
       save(db)
       return Promise.resolve(row)
     },
     update(id, data) {
       const i = db.orders.findIndex((o) => o.id === id)
-      if (i >= 0) db.orders[i] = { ...db.orders[i], ...data }
+      if (i >= 0) {
+        const hasPaymentMethod = Object.prototype.hasOwnProperty.call(data || {}, 'payment_method')
+        const nextPaymentMethod = hasPaymentMethod
+          ? normalizePaymentMethod(data.payment_method)
+          : normalizePaymentMethod(db.orders[i].payment_method)
+
+        const hasGcashRef = Object.prototype.hasOwnProperty.call(data || {}, 'gcash_reference')
+        const nextGcashReference = nextPaymentMethod === 'gcash'
+          ? normalizeGcashReference(hasGcashRef ? data.gcash_reference : db.orders[i].gcash_reference)
+          : null
+
+        db.orders[i] = {
+          ...db.orders[i],
+          ...data,
+          payment_method: nextPaymentMethod,
+          gcash_reference: nextGcashReference,
+        }
+      }
       save(db)
       return Promise.resolve(db.orders[i])
     },
@@ -576,14 +663,17 @@ export const api = {
       return Promise.resolve([...db.menuItems])
     },
     create(data) {
-      const row = { id: uid(), ...data }
+      const row = { id: uid(), ...data, emoji: normalizeEmojiValue(data?.emoji) }
       db.menuItems.push(row)
       save(db)
       return Promise.resolve(row)
     },
     update(id, data) {
       const i = db.menuItems.findIndex((x) => x.id === id)
-      if (i >= 0) db.menuItems[i] = { ...db.menuItems[i], ...data }
+      const nextData = data && Object.prototype.hasOwnProperty.call(data, 'emoji')
+        ? { ...data, emoji: normalizeEmojiValue(data.emoji) }
+        : data
+      if (i >= 0) db.menuItems[i] = { ...db.menuItems[i], ...nextData }
       save(db)
       return Promise.resolve(db.menuItems[i])
     },
@@ -602,7 +692,27 @@ export const api = {
     },
     create(data) {
       const po_number = nextPoNumber()
-      const row = { id: uid(), po_number, status: 'pending', created_at: new Date().toISOString(), ...data }
+      const ingredientById = new Map((db.ingredients || []).map((item) => [item.id, item]))
+      const normalizedItems = (data?.items || []).map((item) => {
+        const quantityOrdered = Number(item.quantityOrdered || 0)
+        const quantityReceived = Number(item.quantityReceived || 0)
+        const ingredientUnit = ingredientById.get(item.ingredientId)?.unit || 'units'
+        return {
+          ...item,
+          unit: item.unit || ingredientUnit,
+          quantityOrdered,
+          quantityReceived,
+          discrepancy: quantityReceived - quantityOrdered,
+        }
+      })
+      const row = {
+        id: uid(),
+        po_number,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        ...data,
+        items: normalizedItems,
+      }
       db.purchaseOrders = db.purchaseOrders || []
       db.purchaseOrders.push(row)
       save(db)
@@ -721,6 +831,15 @@ export const api = {
       if (sourceType === 'po') {
         po = db.purchaseOrders.find((x) => x.id === purchaseOrderId)
         if (!po) return Promise.reject(new Error('PO not found'))
+
+        if (po.status === 'partially_received') {
+          return Promise.reject(new Error('Use partial completion flow for partially received POs'))
+        }
+
+        const existingPoDeliveries = (db.deliveries || []).filter((delivery) => delivery.purchaseOrderRefId === po.id)
+        if (existingPoDeliveries.length >= 1) {
+          return Promise.reject(new Error('Initial PO delivery already recorded'))
+        }
       }
 
       const normalizedItems = []
@@ -809,6 +928,7 @@ export const api = {
         normalizedItems.push({
           ingredientId: ingredient.id,
           ingredientName: line.ingredientName || ingredient.name,
+          unit: line.unit || ingredient.unit || 'units',
           quantityOrdered,
           quantityReceived,
           unitCost: Number(line.unitCost || ingredient.cost_per_unit || 0),
@@ -819,16 +939,22 @@ export const api = {
       })
 
       if (po) {
-        const status = hasDiscrepancy ? 'partially_received' : 'received'
         const updatedPoItems = (po.items || []).map((poItem) => {
           const receivedLine = normalizedItems.find((x) => x.ingredientId === poItem.ingredientId)
+          const previouslyReceived = Number(poItem.quantityReceived || 0)
+          const newlyReceived = Number(receivedLine?.quantityReceived || 0)
+          const quantityOrdered = Number(poItem.quantityOrdered || 0)
+          const cumulativeReceived = previouslyReceived + newlyReceived
           return {
             ...poItem,
-            quantityReceived: receivedLine ? receivedLine.quantityReceived : 0,
-            expiry_date: receivedLine?.expiry_date || null,
-            discrepancy: receivedLine?.discrepancy || 0,
+            unit: poItem.unit || receivedLine?.unit || 'units',
+            quantityReceived: cumulativeReceived,
+            expiry_date: receivedLine?.expiry_date || poItem.expiry_date || null,
+            discrepancy: cumulativeReceived - quantityOrdered,
           }
         })
+        const stillMissing = updatedPoItems.some((item) => Number(item.quantityReceived || 0) < Number(item.quantityOrdered || 0))
+        const status = stillMissing ? 'partially_received' : 'received'
 
         const poIndex = db.purchaseOrders.findIndex((x) => x.id === po.id)
         db.purchaseOrders[poIndex] = {
@@ -851,6 +977,157 @@ export const api = {
         purchaseOrderId: po ? po.po_number : 'Direct',
         purchaseOrderRefId: po ? po.id : null,
         hasDiscrepancy,
+        isPartialCompletion: false,
+        parentDeliveryId: null,
+        totalValue,
+        items: normalizedItems,
+      }
+
+      db.deliveries.push(row)
+      save(db)
+      return Promise.resolve(row)
+    },
+    completePartial(data) {
+      const {
+        purchaseOrderId,
+        items = [],
+        receivedBy = 'Admin',
+        notes,
+        receivedAt,
+      } = data || {}
+
+      db.ingredients = db.ingredients || []
+      db.stockLogs = db.stockLogs || []
+      db.purchaseOrders = db.purchaseOrders || []
+      db.deliveries = db.deliveries || []
+
+      const po = db.purchaseOrders.find((x) => x.id === purchaseOrderId)
+      if (!po) return Promise.reject(new Error('PO not found'))
+      if (po.status !== 'partially_received') return Promise.reject(new Error('PO is not marked as partially received'))
+
+      const completionExists = (db.deliveries || []).some((delivery) => delivery.purchaseOrderRefId === po.id && delivery.isPartialCompletion)
+      if (completionExists) {
+        return Promise.reject(new Error('Partial completion already recorded for this PO'))
+      }
+
+      const originalPartial = (db.deliveries || []).find((delivery) => delivery.purchaseOrderRefId === po.id && delivery.hasDiscrepancy && !delivery.isPartialCompletion)
+      const poItemsByIngredientId = new Map((po.items || []).map((item) => [item.ingredientId, item]))
+
+      const normalizedItems = []
+
+      items.forEach((line) => {
+        const ingredientIndex = db.ingredients.findIndex((x) => x.id === line.ingredientId)
+        if (ingredientIndex < 0) return
+
+        const ingredient = db.ingredients[ingredientIndex]
+        const poItem = poItemsByIngredientId.get(line.ingredientId)
+        if (!poItem) return
+
+        const ordered = Number(poItem.quantityOrdered || 0)
+        const alreadyReceived = Number(poItem.quantityReceived || 0)
+        const missingBefore = Math.max(0, ordered - alreadyReceived)
+        const nowReceiving = Math.max(0, Number(line.quantityReceived || 0))
+        const safeNowReceiving = Math.min(missingBefore, nowReceiving)
+        if (safeNowReceiving <= 0) return
+
+        const oldStock = Number(ingredient.current_stock || 0)
+        const newStock = oldStock + safeNowReceiving
+
+        db.ingredients[ingredientIndex] = {
+          ...ingredient,
+          current_stock: newStock,
+          ...(line.expiry_date ? { expiry_date: line.expiry_date } : {}),
+        }
+
+        db.stockLogs.push({
+          id: uid(),
+          itemId: ingredient.id,
+          itemName: ingredient.name,
+          action: 'received',
+          quantity: safeNowReceiving,
+          note: `Partial completion for ${po.po_number}`,
+          loggedBy: receivedBy,
+          createdAt: new Date().toISOString(),
+        })
+
+        createLog({
+          action: 'delivery_received',
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          performedBy: receivedBy,
+          details: `Partial completion for ${po.po_number}: received ${safeNowReceiving} ${ingredient.unit}`,
+          previousValue: `${oldStock} ${ingredient.unit}`,
+          newValue: `${newStock} ${ingredient.unit}`,
+          severity: 'info',
+        })
+
+        if (line.expiry_date) {
+          const formattedDate = formatDateForLog(line.expiry_date)
+          createLog({
+            action: 'expiry_added',
+            ingredientId: ingredient.id,
+            ingredientName: ingredient.name,
+            performedBy: receivedBy,
+            details: `Expiry date updated from partial completion: ${formattedDate}`,
+            newValue: formattedDate,
+            severity: 'info',
+          })
+        }
+
+        normalizedItems.push({
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          unit: poItem.unit || ingredient.unit || 'units',
+          quantityOrdered: ordered,
+          quantityReceived: safeNowReceiving,
+          unitCost: Number(poItem.unitCost || ingredient.cost_per_unit || 0),
+          totalCost: Number(safeNowReceiving * Number(poItem.unitCost || ingredient.cost_per_unit || 0)),
+          expiry_date: line.expiry_date || null,
+          discrepancy: (alreadyReceived + safeNowReceiving) - ordered,
+        })
+      })
+
+      if (normalizedItems.length === 0) {
+        return Promise.reject(new Error('No valid remaining items to receive'))
+      }
+
+      const updatedPoItems = (po.items || []).map((poItem) => {
+        const completionLine = normalizedItems.find((line) => line.ingredientId === poItem.ingredientId)
+        const ordered = Number(poItem.quantityOrdered || 0)
+        const received = Number(poItem.quantityReceived || 0)
+        const cumulativeReceived = completionLine ? (received + Number(completionLine.quantityReceived || 0)) : received
+        return {
+          ...poItem,
+          quantityReceived: cumulativeReceived,
+          discrepancy: cumulativeReceived - ordered,
+          expiry_date: completionLine?.expiry_date || poItem.expiry_date || null,
+        }
+      })
+
+      const stillMissing = updatedPoItems.some((item) => Number(item.quantityReceived || 0) < Number(item.quantityOrdered || 0))
+      const nextPoStatus = stillMissing ? 'partially_received' : 'received'
+
+      const poIndex = db.purchaseOrders.findIndex((x) => x.id === po.id)
+      db.purchaseOrders[poIndex] = {
+        ...po,
+        status: nextPoStatus,
+        received_at: receivedAt || new Date().toISOString(),
+        received_by: receivedBy,
+        items: updatedPoItems,
+      }
+
+      const totalValue = normalizedItems.reduce((sum, row) => sum + Number(row.totalCost || 0), 0)
+      const row = {
+        id: uid(),
+        supplier: po.supplier || 'supplier',
+        receivedAt: receivedAt || new Date().toISOString(),
+        receivedBy,
+        notes: notes || null,
+        purchaseOrderId: po.po_number,
+        purchaseOrderRefId: po.id,
+        hasDiscrepancy: stillMissing,
+        isPartialCompletion: true,
+        parentDeliveryId: originalPartial?.id || null,
         totalValue,
         items: normalizedItems,
       }

@@ -12,15 +12,20 @@ import { useLocation } from 'react-router-dom'
 import PageHeader from '@/components/shared/PageHeader'
 import IngredientForm from '@/components/inventory/IngredientForm'
 import { useAuth } from '@/lib/AuthContext'
+import { getMenuItemIcon } from '@/utils/menuItemIcons'
 
-const CATEGORIES = ['burger', 'sides', 'drinks', 'combo', 'dessert']
+const CATEGORIES = ['burger', 'chicken', 'sides', 'drinks', 'combo', 'dessert', 'snacks', 'other']
 const CATEGORY_COLORS = {
   burger: 'bg-orange-100 text-orange-700',
+  chicken: 'bg-amber-100 text-amber-700',
   sides: 'bg-yellow-100 text-yellow-700',
   drinks: 'bg-blue-100 text-blue-700',
   combo: 'bg-purple-100 text-purple-700',
   dessert: 'bg-pink-100 text-pink-700',
+  snacks: 'bg-lime-100 text-lime-700',
+  other: 'bg-slate-100 text-slate-700',
 }
+const MENU_EMOJI_OPTIONS = ['🍔', '🍗', '🍟', '🥤', '🍱', '🍦', '🧆', '🍽️', '🌮', '🌯', '🥪', '🍕', '🥗', '🧁', '🍰', '🧃', '🫙', '🥚', '🧀', '🥩', '🍖', '🌶️', '🧂', '🫒']
 
 // ── Action badge styling ────────────────────────────
 const ACTION_BADGE_STYLES = {
@@ -118,7 +123,7 @@ export default function Products() {
   const [menuItems, setMenuItems] = useState([])
   const [menuFormOpen, setMenuFormOpen] = useState(false)
   const [menuEditing, setMenuEditing] = useState(null)
-  const [menuForm, setMenuForm] = useState({ name: '', category: 'burger', price: 0, is_available: true })
+  const [menuForm, setMenuForm] = useState({ name: '', category: 'burger', price: 0, is_available: true, emoji: null })
   const [menuLoading, setMenuLoading] = useState(true)
 
   // Inventory State
@@ -244,7 +249,7 @@ export default function Products() {
   // Menu Handlers
   const openMenuForm = (item = null) => {
     setMenuEditing(item)
-    setMenuForm(item ? { ...item } : { name: '', category: 'burger', price: 0, is_available: true })
+    setMenuForm(item ? { ...item, emoji: item.emoji ?? null } : { name: '', category: 'burger', price: 0, is_available: true, emoji: null })
     setMenuFormOpen(true)
   }
 
@@ -1096,7 +1101,41 @@ export default function Products() {
               </div>
               <div>
                 <Label>Price (₱)</Label>
-                <Input type="number" value={menuForm.price} onChange={(e) => setMenuForm((f) => ({ ...f, price: +e.target.value }))} className="mt-1" />
+                <Input type="number" value={menuForm.price} onFocus={(e) => e.target.select()} onChange={(e) => setMenuForm((f) => ({ ...f, price: +e.target.value }))} className="mt-1" />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Icon (optional)</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setMenuForm((f) => ({ ...f, emoji: null }))}
+                  className="h-8 px-2 text-xs"
+                >
+                  Use Category Default
+                </Button>
+              </div>
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`h-12 w-12 rounded-full border flex items-center justify-center text-2xl ${menuForm.emoji ? 'bg-red-50 border-red-200' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+                  {getMenuItemIcon(menuForm)}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {menuForm.emoji ? 'Custom icon selected' : 'Using category default icon'}
+                </div>
+              </div>
+              <div className="grid grid-cols-8 gap-2">
+                {MENU_EMOJI_OPTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => setMenuForm((f) => ({ ...f, emoji }))}
+                    className={`h-11 rounded-md border text-2xl transition-all ${menuForm.emoji === emoji ? 'border-[#B01010] ring-2 ring-[#B01010]/30 bg-red-50' : 'border-input hover:bg-muted/30'}`}
+                    aria-label={`Set menu icon to ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -1215,6 +1254,7 @@ export default function Products() {
                   type="number"
                   min="0"
                   value={adjustForm.qty}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setAdjustForm((f) => ({ ...f, qty: Number(e.target.value) || 0 }))}
                   className="mt-1"
                 />
