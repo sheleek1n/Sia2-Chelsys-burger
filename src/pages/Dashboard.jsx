@@ -18,12 +18,22 @@ export default function Dashboard() {
   const [ingredients, setIngredients] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
   const [paymentFilter, setPaymentFilter] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
+    setLoading(true)
+    setError(null)
     Promise.all([api.orders.list(500), api.ingredients.list()])
       .then(([o, i]) => {
         setOrders(o)
         setIngredients(i)
+      })
+      .catch((err) => {
+        setError(err.message || 'Failed to load dashboard data')
+      })
+      .finally(() => {
+        setLoading(false)
       })
   }, [])
 
@@ -49,7 +59,9 @@ export default function Dashboard() {
       hourEnd.setHours(hour + 1, 0, 0, 0)
       const rev = todayOrders
         .filter((o) => {
-          const orderTime = new Date(`${o.order_date}T${o.createdAt ? new Date(o.createdAt).toISOString().split('T')[1] : '12:00:00'}`)
+          // Only include orders with valid created_at timestamps
+          if (!o.created_at) return false
+          const orderTime = new Date(o.created_at)
           return orderTime >= hourStart && orderTime < hourEnd
         })
         .reduce((s, o) => s + (o.total_amount || 0), 0)
@@ -159,6 +171,29 @@ export default function Dashboard() {
 
     return groups.slice(0, 4)
   }, [inventoryAlerts])
+
+  if (loading) {
+    return (
+      <div>
+        <PageHeader title="Sales Dashboard" subtitle={`Today, ${format(new Date(), 'MMMM d, yyyy')}`} />
+        <div className="flex items-center justify-center py-20 text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div>
+        <PageHeader title="Sales Dashboard" subtitle={`Today, ${format(new Date(), 'MMMM d, yyyy')}`} />
+        <div className="flex flex-col items-center justify-center py-20">
+          <p className="text-red-600 mb-4">Error: {error}</p>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90">
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>

@@ -123,11 +123,17 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   const tenderedAmount = Number(amountTendered)
   const changeAmount = Number.isFinite(tenderedAmount) ? tenderedAmount - total : 0
 
+  const cashInsufficient = paymentMethod === 'cash' && amountTendered !== '' && changeAmount < 0
+
   const handleSubmit = () => {
     if (cart.length === 0) return
 
     if (paymentMethod === 'gcash' && !gcashReference.trim()) {
       setPaymentError('Please enter the GCash reference number')
+      return
+    }
+
+    if (cashInsufficient) {
       return
     }
 
@@ -350,7 +356,7 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
             <Label className="text-xs">Notes (optional)</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-1 text-sm" />
           </div>
-          <Button className="w-full bg-primary hover:bg-primary/90" disabled={cart.length === 0 || loading} onClick={handleSubmit}>
+          <Button className="w-full bg-primary hover:bg-primary/90" disabled={cart.length === 0 || loading || cashInsufficient} onClick={handleSubmit}>
             {loading ? 'Saving...' : 'Place Order'}
           </Button>
         </div>

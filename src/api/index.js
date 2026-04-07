@@ -69,7 +69,12 @@ function load() {
 function save(data) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-  } catch (_) {}
+  } catch (err) {
+    console.error('[Chelsys] Failed to save data to localStorage:', err)
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      alert('Storage is full! Your latest changes may not be saved. Please export or clear old data.')
+    }
+  }
 }
 
 let db = load()
@@ -569,7 +574,7 @@ export const api = {
       let newStock = oldStock
       if (type === 'add')    newStock = newStock + qty
       else if (type === 'remove') newStock = Math.max(0, newStock - qty)
-      else if (type === 'set')    newStock = qty
+      else if (type === 'set')    newStock = Math.max(0, qty)
       db.ingredients[i] = { ...item, current_stock: newStock }
       const logEntry = {
         id: uid(),

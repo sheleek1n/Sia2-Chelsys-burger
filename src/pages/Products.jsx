@@ -390,15 +390,15 @@ export default function Products() {
       const issues = []
       const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
 
-      if ((item.current_stock || 0) <= 1) {
+      if ((item.current_stock || 0) === 0) {
         issues.push({
           key: `${item.id}:critical_stock`,
           ingredientId: item.id,
           severity: 'critical',
           priority: 1,
           icon: '🔴',
-          label: 'Critical Stock',
-          secondary: `Stock: ${item.current_stock || 0} remaining`,
+          label: 'Out of Stock',
+          secondary: `Stock: 0 remaining`,
           action: 'adjust',
           item,
         })

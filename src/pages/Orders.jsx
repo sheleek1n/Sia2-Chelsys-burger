@@ -4,10 +4,12 @@ import { useAuth } from '@/lib/AuthContext'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, ReceiptText, X, Printer, AlertTriangle, FilePenLine, Ban } from 'lucide-react'
+import { Search, ReceiptText, X, Printer, AlertTriangle, FilePenLine, Ban, ChevronLeft, ChevronRight } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
+
+const ORDERS_PER_PAGE = 25
 
 const statusColors = {
   completed: 'bg-green-100 text-green-700',
@@ -80,6 +82,18 @@ function ReceiptModal({ order, onClose }) {
                   <span>Reference #:</span>
                   <span>{order.gcash_reference || '-'}</span>
                 </div>
+              )}
+              {order.payment_method === 'cash' && order.amount_tendered != null && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Tendered:</span>
+                    <span>₱{Number(order.amount_tendered).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Change:</span>
+                    <span>₱{(order.change_amount != null ? Number(order.change_amount) : 0).toFixed(2)}</span>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -204,7 +218,7 @@ function IncidentNoteModal({ order, onClose, onSave }) {
               <button
                 key={preset}
                 type="button"
-                onClick={() => setNoteText(preset)}
+                onClick={() => setNoteText(prev => prev ? `${prev} - ${preset}` : preset)}
                 className="text-sm px-3 py-1.5 rounded-full border bg-background hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition-colors"
               >
                 {preset}
@@ -256,6 +270,10 @@ export default function Orders() {
   const [paymentFilter, setPaymentFilter] = useState('all')
   const [flaggedOnly, setFlaggedOnly] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   // Modals state
   const [receiptOrder, setReceiptOrder] = useState(null)
@@ -264,7 +282,11 @@ export default function Orders() {
 
   const loadData = () => {
     setLoading(true)
-    api.orders.list(200).then((o) => { setOrders(o); setLoading(false) })
+    setError(null)
+    api.orders.list()
+      .then((o) => { setOrders(o) })
+      .catch((err) => { setError(err.message || 'Failed to load orders') })
+      .finally(() => { setLoading(false) })
   }
 
   useEffect(() => {
@@ -298,11 +320,21 @@ export default function Orders() {
     const matchStatus = statusFilter === 'all' || o.status === statusFilter
     const matchPayment = paymentFilter === 'all' || (o.payment_method || 'cash') === paymentFilter
     const matchFlagged = !flaggedOnly || !!o.incidentNote
-    return matchSearch && matchStatus && matchPayment && matchFlagged
+    const matchDateFrom = !dateFrom || o.order_date >= dateFrom
+    const matchDateTo = !dateTo || o.order_date <= dateTo
+    return matchSearch && matchStatus && matchPayment && matchFlagged && matchDateFrom && matchDateTo
   })
 
   const totalRevenue = filtered.filter((o) => o.status === 'completed').reduce((s, o) => s + (o.total_amount || 0), 0)
   const totalFlagged = orders.filter((o) => !!o.incidentNote).length
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ORDERS_PER_PAGE))
+  const safePage = Math.min(currentPage, totalPages)
+  const paginatedOrders = filtered.slice((safePage - 1) * ORDERS_PER_PAGE, safePage * ORDERS_PER_PAGE)
+
+  // Reset to page 1 when filters change
+  useEffect(() => { setCurrentPage(1) }, [search, statusFilter, paymentFilter, flaggedOnly, dateFrom, dateTo])
 
   return (
     <div>
@@ -312,6 +344,20 @@ export default function Orders() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search order # or cashier..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="w-36"
+          title="From date"
+        />
+        <Input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="w-36"
+          title="To date"
+        />
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Status" />
@@ -371,10 +417,13 @@ export default function Orders() {
               {loading && (
                 <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">Loading...</td></tr>
               )}
-              {!loading && filtered.length === 0 && (
+              {!loading && error && (
+                <tr><td colSpan={8} className="text-center py-12 text-red-600">Error: {error}</td></tr>
+              )}
+              {!loading && !error && filtered.length === 0 && (
                 <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No orders found.</td></tr>
               )}
-              {!loading && filtered.map((o) => (
+              {!loading && paginatedOrders.map((o) => (
                 <>
                   <tr key={o.id} className={`border-b last:border-0 hover:bg-muted/20 ${o.incidentNote ? 'bg-amber-50/30' : ''} ${o.status === 'voided' ? 'opacity-50' : ''}`}>
                     <td className="px-5 py-4 font-mono font-semibold">
@@ -497,6 +546,31 @@ export default function Orders() {
             </tbody>
           </table>
         </div>
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="px-5 py-3 border-t bg-muted/20 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              Showing {(safePage - 1) * ORDERS_PER_PAGE + 1}–{Math.min(safePage * ORDERS_PER_PAGE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="p-1.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-medium">Page {safePage} of {totalPages}</span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="p-1.5 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
