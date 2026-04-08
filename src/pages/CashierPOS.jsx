@@ -3,6 +3,7 @@ import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
 import OrderForm from '@/components/orders/OrderForm'
+import ReceiptModal from '@/components/orders/ReceiptModal'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import { CheckCircle2, RefreshCcw } from 'lucide-react'
@@ -14,6 +15,7 @@ export default function CashierPOS() {
   const activeName = user ? user.full_name : displayName
   const [menuItems, setMenuItems] = useState([])
   const [recentOrders, setRecentOrders] = useState([])
+  const [receiptOrder, setReceiptOrder] = useState(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
@@ -21,7 +23,7 @@ export default function CashierPOS() {
     setLoading(true)
     Promise.all([
       api.menuItems.list(),
-      api.orders.list(50)
+      api.orders.list()
     ]).then(([m, o]) => {
       setMenuItems(m)
 
@@ -33,6 +35,8 @@ export default function CashierPOS() {
           order.status === 'completed'
       )
       setRecentOrders(myRecentOrders)
+    }).catch(() => {
+      toast.error('Failed to load data')
     }).finally(() => {
       setLoading(false)
     })
@@ -45,12 +49,15 @@ export default function CashierPOS() {
   const handleSubmit = async (orderData) => {
     setSubmitting(true)
     try {
-      await api.orders.create({
+      const createdOrder = await api.orders.create({
         ...orderData,
         cashier_name: activeName || 'Unknown',
       })
+      setReceiptOrder(createdOrder)
       toast.success('Order placed successfully!')
       loadData()
+    } catch (_err) {
+      toast.error('Failed to place order')
     } finally {
       setSubmitting(false)
     }
@@ -89,6 +96,8 @@ export default function CashierPOS() {
       <div className="flex-1 min-h-0">
         <OrderForm menuItems={menuItems} onSubmit={handleSubmit} loading={submitting || loading} />
       </div>
+
+      <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
     </div>
   )
 }

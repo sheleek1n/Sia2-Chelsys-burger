@@ -139,11 +139,16 @@ export default function ProductionLog() {
   const [confirming, setConfirming] = useState(false)
 
   const loadItems = useCallback(() => {
-    Promise.all([api.ingredients.list(), api.ingredientCategories.list()]).then(([ingredients, categoryRows]) => {
-      setItems(ingredients)
-      setCategories(categoryRows)
-      setLoading(false)
-    })
+    Promise.all([api.ingredients.list(), api.ingredientCategories.list()])
+      .then(([ingredients, categoryRows]) => {
+        setItems(ingredients)
+        setCategories(categoryRows)
+        setLoading(false)
+      })
+      .catch(() => {
+        setLoading(false)
+        toast.error('Failed to load data')
+      })
   }, [])
 
   useEffect(() => { loadItems() }, [loadItems])

@@ -151,9 +151,23 @@ export default function Products() {
   const [logSearch, setLogSearch] = useState('')
   const [logPage, setLogPage] = useState(1)
 
-  const loadMenu = () => api.menuItems.list().then((i) => { setMenuItems(i); setMenuLoading(false) })
-  const loadIngredients = () => api.ingredients.list().then((i) => { setIngredients(i); setIngredientLoading(false) })
-  const loadIngredientCategories = () => api.ingredientCategories.list().then((data) => setIngredientCategories(data))
+  const loadMenu = () => api.menuItems.list()
+    .then((i) => { setMenuItems(i); setMenuLoading(false) })
+    .catch(() => {
+      setMenuLoading(false)
+      toast.error('Failed to load data')
+    })
+  const loadIngredients = () => api.ingredients.list()
+    .then((i) => { setIngredients(i); setIngredientLoading(false) })
+    .catch(() => {
+      setIngredientLoading(false)
+      toast.error('Failed to load data')
+    })
+  const loadIngredientCategories = () => api.ingredientCategories.list()
+    .then((data) => setIngredientCategories(data))
+    .catch(() => {
+      toast.error('Failed to load data')
+    })
 
   const loadLogs = useCallback(() => {
     setLogLoading(true)

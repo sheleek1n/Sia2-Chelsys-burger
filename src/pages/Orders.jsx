@@ -4,10 +4,12 @@ import { useAuth } from '@/lib/AuthContext'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, ReceiptText, X, Printer, AlertTriangle, FilePenLine, Ban } from 'lucide-react'
+import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
-import { getMenuItemIcon } from '@/utils/menuItemIcons'
+import ReceiptModal from '@/components/orders/ReceiptModal'
+
+const ORDERS_PER_PAGE = 25
 
 const statusColors = {
   completed: 'bg-green-100 text-green-700',
@@ -33,77 +35,6 @@ const PRESET_NOTES = [
 ]
 
 const MAX_NOTE_LENGTH = 200
-
-function ReceiptModal({ order, onClose }) {
-  if (!order) return null
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-      <div className="bg-white rounded-lg shadow-xl w-[95vw] max-w-md mx-4 max-h-[92vh] overflow-hidden flex flex-col">
-        <div className="p-4 sm:p-6 flex-1 overflow-y-auto">
-          <div className="flex justify-end mb-2">
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div id="receipt" className="text-center font-mono text-sm">
-            <h2 className="text-lg font-bold mb-2">Chelsy's Burger</h2>
-            <p className="mb-2">Order Receipt</p>
-            <p className="mb-1">Order: {order.order_number}</p>
-            <p className="mb-1">{order.created_at ? format(new Date(order.created_at), 'MMMM d, yyyy — h:mm a') : order.order_date}</p>
-            <p className="mb-4">Served by: {order.cashier_name}</p>
-
-            <div className="border-t border-b py-2 mb-2">
-              {(order.items || []).map((item, i) => (
-                <div key={i} className="flex justify-between mb-1">
-                  <span className="inline-flex items-center gap-1">
-                    <span className="text-sm">{getMenuItemIcon(item)}</span>
-                    <span>{item.menu_item_name} x{item.quantity}</span>
-                  </span>
-                  <span>₱{(item.subtotal || 0).toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-1 mb-4">
-              <div className="flex justify-between font-bold">
-                <span>Total:</span>
-                <span>₱{(order.total_amount || 0).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Payment:</span>
-                <span>{getPaymentLabel(order.payment_method)}</span>
-              </div>
-              {order.payment_method === 'gcash' && (
-                <div className="flex justify-between">
-                  <span>Reference #:</span>
-                  <span>{order.gcash_reference || '-'}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex gap-2 mt-4">
-            <button
-              onClick={() => window.print()}
-              className="flex-1 flex items-center justify-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
-            >
-              <Printer className="w-4 h-4" />
-              Print
-            </button>
-            <button
-              onClick={onClose}
-              className="flex-1 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function VoidOrderModal({ order, onClose, onConfirm }) {
   const [voidNote, setVoidNote] = useState('')
@@ -204,7 +135,7 @@ function IncidentNoteModal({ order, onClose, onSave }) {
               <button
                 key={preset}
                 type="button"
-                onClick={() => setNoteText(preset)}
+                onClick={() => setNoteText((prev) => (prev ? `${prev} — ${preset}` : preset))}
                 className="text-sm px-3 py-1.5 rounded-full border bg-background hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition-colors"
               >
                 {preset}
@@ -255,7 +186,10 @@ export default function Orders() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [paymentFilter, setPaymentFilter] = useState('all')
   const [flaggedOnly, setFlaggedOnly] = useState(false)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
 
   // Modals state
   const [receiptOrder, setReceiptOrder] = useState(null)
@@ -264,7 +198,12 @@ export default function Orders() {
 
   const loadData = () => {
     setLoading(true)
-    api.orders.list(200).then((o) => { setOrders(o); setLoading(false) })
+    api.orders.list(200)
+      .then((o) => { setOrders(o); setLoading(false) })
+      .catch(() => {
+        setLoading(false)
+        toast.error('Failed to load data')
+      })
   }
 
   useEffect(() => {
@@ -298,16 +237,25 @@ export default function Orders() {
     const matchStatus = statusFilter === 'all' || o.status === statusFilter
     const matchPayment = paymentFilter === 'all' || (o.payment_method || 'cash') === paymentFilter
     const matchFlagged = !flaggedOnly || !!o.incidentNote
-    return matchSearch && matchStatus && matchPayment && matchFlagged
+    const matchFrom = !dateFrom || (o.order_date && o.order_date >= dateFrom)
+    const matchTo = !dateTo || (o.order_date && o.order_date <= dateTo)
+    return matchSearch && matchStatus && matchPayment && matchFlagged && matchFrom && matchTo
   })
 
   const totalRevenue = filtered.filter((o) => o.status === 'completed').reduce((s, o) => s + (o.total_amount || 0), 0)
   const totalFlagged = orders.filter((o) => !!o.incidentNote).length
+  const today = new Date().toISOString().split('T')[0]
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ORDERS_PER_PAGE))
+  const safePage = Math.min(currentPage, totalPages)
+  const paginatedOrders = filtered.slice((safePage - 1) * ORDERS_PER_PAGE, safePage * ORDERS_PER_PAGE)
+
+  useEffect(() => { setCurrentPage(1) }, [search, statusFilter, paymentFilter, flaggedOnly, dateFrom, dateTo])
 
   return (
     <div>
       <PageHeader title="Orders" subtitle="All sales transactions" />
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4 items-end">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search order # or cashier..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
@@ -334,6 +282,34 @@ export default function Orders() {
             <SelectItem value="gcash">GCash</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">From</label>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="w-40"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">To</label>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="w-40"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setDateFrom(today)
+            setDateTo(today)
+          }}
+          className="h-10 rounded-md border border-input bg-background px-4 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+        >
+          Today
+        </button>
         {/* Flagged Only Toggle */}
         <button
           onClick={() => setFlaggedOnly(!flaggedOnly)}
@@ -374,7 +350,7 @@ export default function Orders() {
               {!loading && filtered.length === 0 && (
                 <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No orders found.</td></tr>
               )}
-              {!loading && filtered.map((o) => (
+              {!loading && paginatedOrders.map((o) => (
                 <>
                   <tr key={o.id} className={`border-b last:border-0 hover:bg-muted/20 ${o.incidentNote ? 'bg-amber-50/30' : ''} ${o.status === 'voided' ? 'opacity-50' : ''}`}>
                     <td className="px-5 py-4 font-mono font-semibold">
@@ -497,6 +473,32 @@ export default function Orders() {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="px-5 py-3 border-t bg-muted/20 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              Showing {(safePage - 1) * ORDERS_PER_PAGE + 1}–{Math.min(safePage * ORDERS_PER_PAGE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="px-3 py-1.5 rounded border border-input bg-background text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted/50"
+              >
+                Prev
+              </button>
+              <span className="text-sm font-medium">Page {safePage} of {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="px-3 py-1.5 rounded border border-input bg-background text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted/50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}
