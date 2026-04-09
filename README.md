@@ -1,6 +1,6 @@
 # Chelsy's Burger POS System
 
-A point-of-sale and inventory management system built for a single-branch fast food restaurant.
+A point-of-sale and back-office management system built for a single-branch fast food restaurant.
 
 ---
 
@@ -42,10 +42,12 @@ The app opens at **http://localhost:5173**
 
 ## Default Accounts
 
-| Role    | Username | Password   |
-| ------- | -------- | ---------- |
-| Admin   | admin    | admin123   |
-| Cashier | user     | user123    |
+These are the seed accounts on first run. Change passwords via the **Accounts** page after logging in as admin.
+
+| Role    | Username | Password |
+| ------- | -------- | -------- |
+| Admin   | admin    | admin123 |
+| Cashier | user     | user123  |
 
 ---
 
@@ -55,7 +57,6 @@ The app opens at **http://localhost:5173**
 | ---------------- | ------------------ | ------------------------------------------ |
 | UI Framework     | React 19           | Component-based user interface             |
 | Styling          | TailwindCSS 4      | Utility-first CSS                          |
-| UI Components    | Radix UI           | Accessible, unstyled component primitives  |
 | Icons            | Lucide React       | Icon library                               |
 | Charts           | Recharts           | Sales and revenue charts on the dashboard  |
 | State Management | Zustand            | Lightweight store for cashier sessions     |
@@ -76,12 +77,13 @@ Browser
  |-- React App (Vite + React Router)
  |    |
  |    |-- Pages
- |    |    |-- CashierPOS ......... Order-taking screen (cashier + admin)
- |    |    |-- Orders ............. Order history and void management
- |    |    |-- ProductionLog ...... "Open Pack" stock logging (cashier + admin)
  |    |    |-- Dashboard .......... Sales KPIs, charts, alerts (admin only)
+ |    |    |-- CashierPOS ......... Order-taking screen (cashier + admin)
+ |    |    |-- Orders ............. Order history, void/refund management
+ |    |    |-- ProductionLog ...... "Open Pack" stock logging (cashier + admin)
  |    |    |-- Products ........... Menu items + inventory management (admin only)
  |    |    |-- SupplyChain ........ Purchase orders + deliveries (admin only)
+ |    |    |-- Settings ........... User account management (admin only)
  |    |
  |    |-- src/api/index.js        ** Single API layer **
  |    |    All data reads/writes go through this one file.
@@ -95,13 +97,15 @@ Browser
 
 ### Key Design Decisions
 
-1. **POS and Inventory are separate.** Selling a burger does not auto-deduct buns. Staff logs ingredient usage manually via "Open Pack" in the Production Log. This fits a small team where 1 pack of buns covers many orders across hours.
+1. **POS and inventory are separate.** Selling a burger does not auto-deduct ingredients. Staff logs usage manually via "Open Pack" in the Production Log. This fits a small team where one pack of buns covers many orders across hours.
 
 2. **One API file for everything.** `src/api/index.js` is the only file that reads/writes localStorage. When the app migrates to Electron + SQLite, only this file needs to change.
 
-3. **Two roles, two session types.**
-   - Admin: persistent login (survives page refresh)
-   - Cashier: session-only login (resets when the app closes, fresh each shift)
+3. **Unified login, two roles.**
+   - Admin: persistent session (survives page refresh), access to all pages
+   - Cashier: session-only login (resets when the app closes), access to POS, Order History, and Production Log only
+
+4. **Local timezone dates.** All date recording uses the device's local time, not UTC — so orders placed at any hour of the day in the Philippines are stamped with the correct local date.
 
 ---
 
@@ -112,19 +116,26 @@ src/
   api/
     index.js ............... API layer (localStorage CRUD + business logic)
   components/
-    dashboard/ ............. Dashboard widgets (StatCard, RevenueChart, etc.)
-    inventory/ ............. Ingredient form
-    orders/ ................ OrderForm (POS cart + checkout)
-    shared/ ................ Reusable components (PageHeader)
+    dashboard/ ............. Dashboard widgets (StatCard, RevenueChart, TopItems)
+    orders/ ................ OrderForm (POS cart + checkout), ReceiptModal
+    shared/ ................ Reusable components (PageHeader, MenuItemImage)
     ui/ .................... Base UI components (button, input, dialog, etc.)
   lib/
     AuthContext.jsx ........ Admin session provider
     useCashierStore.js ..... Zustand store for cashier session
-  pages/ ................... One file per route/screen
+  pages/
+    Dashboard.jsx .......... Sales summary + inventory alerts
+    CashierPOS.jsx ......... Order-taking interface
+    Orders.jsx ............. Order history with filters and void/refund
+    ProductionLog.jsx ...... Ingredient usage logging
+    Products.jsx ........... Menu and inventory management
+    SupplyChain.jsx ........ Purchase orders and deliveries
+    Settings.jsx ........... Admin account management
   utils/
     menuItemIcons.js ....... Emoji mappings for menu categories
-  App.jsx .................. Router + auth wrapper
+  App.jsx .................. Router + role-based auth wrapper
   Layout.jsx ............... Sidebar navigation
+  pages.config.js .......... Page registry
   index.css ................ TailwindCSS config + custom styles
 ```
 
@@ -135,5 +146,4 @@ src/
 - [ ] Wrap in Electron for a standalone desktop `.exe`
 - [ ] Migrate from localStorage to SQLite (via Prisma ORM)
 - [ ] Receipt printer and cash drawer integration
-- [ ] Menu item images
 - [ ] PDF report exports
