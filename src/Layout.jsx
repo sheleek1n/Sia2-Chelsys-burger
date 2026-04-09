@@ -2,11 +2,11 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import {
-  LayoutDashboard,
+  Home,
   ShoppingCart,
-  Package,
+  History,
+  PackageOpen,
   Truck,
-  ClipboardList,
   UtensilsCrossed,
   LogOut,
   ChevronLeft,
@@ -19,12 +19,12 @@ import { useCashierStore } from "@/lib/useCashierStore";
 const LOGO_SRC = "/chelsys-burger-logo.png";
 
 const NAV_ITEMS = [
-  { label: "Dashboard",      icon: LayoutDashboard, page: "Dashboard",      roles: ["admin"] },
-  { label: "Cashier POS",    icon: ShoppingCart,    page: "CashierPOS",    roles: ["admin", "cashier"] },
-  { label: "Orders",         icon: ClipboardList,   page: "Orders",        roles: ["admin", "cashier"] },
-  { label: "Production Log", icon: Package,         page: "ProductionLog", roles: ["admin", "cashier"] },
-  { label: "Products",       icon: UtensilsCrossed, page: "Products",      roles: ["admin"] },
-  { label: "Supply Chain",   icon: Truck,           page: "SupplyChain",   roles: ["admin"] },
+  { label: "Home",           icon: Home,            page: "Dashboard",      roles: ["admin"] },
+  { label: "New Order",      icon: ShoppingCart,    page: "CashierPOS",    roles: ["admin", "cashier"] },
+  { label: "Order History",  icon: History,         page: "Orders",        roles: ["admin", "cashier"] },
+  { label: "Production Log", icon: PackageOpen,     page: "ProductionLog", roles: ["admin", "cashier"] },
+  { label: "Menu & Stock",   icon: UtensilsCrossed, page: "Products",      roles: ["admin"] },
+  { label: "Deliveries",     icon: Truck,           page: "SupplyChain",   roles: ["admin"] },
 ];
 
 function createPageUrl(page) {

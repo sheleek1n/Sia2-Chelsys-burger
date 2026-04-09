@@ -16,12 +16,11 @@ export default function Dashboard() {
   const isAdmin = user?.role === 'admin'
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [orders, setOrders] = useState([])
   const [ingredients, setIngredients] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
   const [paymentFilter, setPaymentFilter] = useState('all')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
   useEffect(() => {
     setLoading(true)

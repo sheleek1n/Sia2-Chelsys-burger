@@ -4,12 +4,10 @@ import { useAuth } from '@/lib/AuthContext'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban } from 'lucide-react'
+import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban, Download } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import ReceiptModal from '@/components/orders/ReceiptModal'
-
-const ORDERS_PER_PAGE = 25
 
 const ORDERS_PER_PAGE = 25
 
@@ -191,6 +189,7 @@ export default function Orders() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
 
   // Modals state
@@ -200,9 +199,11 @@ export default function Orders() {
 
   const loadData = () => {
     setLoading(true)
+    setError(null)
     api.orders.list(200)
       .then((o) => { setOrders(o); setLoading(false) })
-      .catch(() => {
+      .catch((err) => {
+        setError(err.message || 'Failed to load orders')
         setLoading(false)
         toast.error('Failed to load data')
       })
@@ -277,12 +278,6 @@ export default function Orders() {
   const totalFlagged = orders.filter((o) => !!o.incidentNote).length
   const today = new Date().toISOString().split('T')[0]
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ORDERS_PER_PAGE))
-  const safePage = Math.min(currentPage, totalPages)
-  const paginatedOrders = filtered.slice((safePage - 1) * ORDERS_PER_PAGE, safePage * ORDERS_PER_PAGE)
-
-  useEffect(() => { setCurrentPage(1) }, [search, statusFilter, paymentFilter, flaggedOnly, dateFrom, dateTo])
-
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / ORDERS_PER_PAGE))
   const safePage = Math.min(currentPage, totalPages)
@@ -299,26 +294,6 @@ export default function Orders() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search order # or cashier..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
-        <Input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="w-36"
-          title="From date"
-        />
-        <Input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="w-36"
-          title="To date"
-        />
-        <button
-          onClick={() => { const t = new Date().toISOString().split('T')[0]; setDateFrom(t); setDateTo(t) }}
-          className="px-3 py-2 text-sm font-medium border border-input rounded-md bg-background hover:bg-muted transition-colors whitespace-nowrap"
-        >
-          Today
-        </button>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Status" />
