@@ -561,7 +561,7 @@ export default function Products() {
   // Determine header action button based on active tab
   const headerAction = (() => {
     if (activeTab === 'menu') {
-      return <Button onClick={() => openMenuForm()}> <Plus className="w-4 h-4 mr-2" /> Add Menu Item</Button>
+      return <Button onClick={() => openMenuForm()}> <Plus className="w-4 h-4 mr-2" /> Add Item</Button>
     }
     if (activeTab === 'inventory') {
       return (
@@ -572,7 +572,7 @@ export default function Products() {
             </Button>
           )}
           <Button onClick={() => { setIngredientEditing(null); setIngredientFormOpen(true) }}>
-            <Plus className="w-4 h-4 mr-2" /> Add Inventory Item
+            <Plus className="w-4 h-4 mr-2" /> Add Stock Item
           </Button>
         </div>
       )
@@ -583,8 +583,8 @@ export default function Products() {
   return (
     <div className="flex flex-col h-full gap-4">
       <PageHeader 
-        title="Products & Inventory" 
-        subtitle="Manage your menu items and inventory stock" 
+        title="Menu & Stock"
+        subtitle="Your menu prices and ingredient stock levels"
         action={headerAction}
       />
 
@@ -652,13 +652,13 @@ export default function Products() {
             value="menu" 
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 py-2"
           >
-            Menu Items
+            Menu
           </TabsTrigger>
           <TabsTrigger 
             value="inventory" 
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 py-2"
           >
-            Raw Ingredients
+            Stock
           </TabsTrigger>
           {isAdmin && (
             <TabsTrigger 
@@ -666,7 +666,7 @@ export default function Products() {
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 py-2"
             >
               <ClipboardList className="w-4 h-4 mr-1.5" />
-              Activity Log
+              History
             </TabsTrigger>
           )}
         </TabsList>
@@ -1032,7 +1032,15 @@ export default function Products() {
                             </td>
                             {/* Details */}
                             <td className="px-4 py-3 text-muted-foreground max-w-[420px] whitespace-normal break-words">
-                              {log.details}
+                              {log.details?.includes('⚠️') ? (
+                                <div className="flex flex-col gap-1">
+                                  <span>{log.details.split('⚠️')[0].trim()}</span>
+                                  <span className="inline-flex items-start gap-1 px-2 py-1 rounded-md bg-amber-100 text-amber-800 text-xs font-medium max-w-full">
+                                    <span className="shrink-0">⚠️</span>
+                                    <span className="break-words min-w-0">{log.details.split('⚠️')[1].trim()}</span>
+                                  </span>
+                                </div>
+                              ) : log.details}
                             </td>
                             {/* Before → After */}
                             <td className="px-4 py-3 whitespace-nowrap text-xs">
@@ -1292,7 +1300,7 @@ export default function Products() {
       <Dialog open={adjustOpen} onOpenChange={setAdjustOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Adjust Stock</DialogTitle>
+            <DialogTitle>Update Stock</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="text-sm text-muted-foreground">

@@ -38,7 +38,7 @@ function load() {
       { id: '2', username: 'user', password: 'user123', role: 'cashier', full_name: 'Cashier User' },
     ],
     orders: [
-      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: new Date().toISOString().split('T')[0], items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299, emoji: '🍔' }] },
+      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: localDate(), items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299, emoji: '🍔' }] },
     ],
     // Unified ingredients — single source of truth for both Admin Inventory and Cashier Production Log
     ingredientCategories: [...DEFAULT_INGREDIENT_CATEGORIES],
@@ -64,6 +64,10 @@ function load() {
     stockLogs: [],
     inventoryLogs: [],   // Activity log — fills as actions happen
   }
+}
+
+function localDate(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function save(data) {
@@ -265,7 +269,11 @@ export const api = {
 
   orders: {
     list(limit = 500) {
-      const list = [...db.orders].sort((a, b) => new Date(b.order_date) - new Date(a.order_date))
+      const list = [...db.orders].sort((a, b) => {
+        const da = a.created_at || a.order_date || ''
+        const db2 = b.created_at || b.order_date || ''
+        return new Date(db2) - new Date(da)
+      })
       return Promise.resolve(list.slice(0, limit))
     },
     create(data) {
@@ -544,7 +552,7 @@ export const api = {
         performedBy: loggedBy,
         previousValue: `${oldStock} ${item.unit}`,
         newValue: `${newStock} ${item.unit}`,
-        details: `${loggedBy} opened ${deduct} pack${deduct > 1 ? 's' : ''} of ${item.name}`,
+        details: `${loggedBy} opened ${deduct} pack${deduct > 1 ? 's' : ''} of ${item.name}${note ? ` ⚠️ ${note}` : ''}`,
         severity: 'info',
       })
 
@@ -685,6 +693,83 @@ export const api = {
     },
     delete(id) {
       db.menuItems = db.menuItems.filter((x) => x.id !== id)
+      save(db)
+      return Promise.resolve()
+    },
+  },
+
+  users: {
+    list() {
+      return Promise.resolve(
+        (db.users || []).map(({ password, ...u }) => u)
+      )
+    },
+    create(data) {
+      if (!data?.username?.trim() || !data?.password?.trim() || !data?.full_name?.trim()) {
+        return Promise.reject(new Error('Username, password, and full name are required'))
+      }
+      const exists = db.users.some((u) => u.username === data.username.trim())
+      if (exists) return Promise.reject(new Error('Username already exists'))
+      const user = {
+        id: uid(),
+        username: data.username.trim(),
+        password: data.password.trim(),
+        role: data.role || 'cashier',
+        full_name: data.full_name.trim(),
+      }
+      db.users.push(user)
+      save(db)
+      const { password, ...safe } = user
+      return Promise.resolve(safe)
+    },
+    update(id, data) {
+      const i = db.users.findIndex((u) => u.id === id)
+      if (i < 0) return Promise.reject(new Error('User not found'))
+      if (data.username) {
+        const dup = db.users.some((u) => u.username === data.username.trim() && u.id !== id)
+        if (dup) return Promise.reject(new Error('Username already exists'))
+        db.users[i].username = data.username.trim()
+      }
+      if (data.full_name) db.users[i].full_name = data.full_name.trim()
+      if (data.password) db.users[i].password = data.password.trim()
+      if (data.role) db.users[i].role = data.role
+      save(db)
+      const { password, ...safe } = db.users[i]
+      return Promise.resolve(safe)
+    },
+    delete(id) {
+      const user = db.users.find((u) => u.id === id)
+      if (!user) return Promise.reject(new Error('User not found'))
+      if (user.role === 'admin' && db.users.filter((u) => u.role === 'admin').length <= 1) {
+        return Promise.reject(new Error('Cannot delete the last admin account'))
+      }
+      db.users = db.users.filter((u) => u.id !== id)
+      save(db)
+      return Promise.resolve()
+    },
+  },
+
+  suppliers: {
+    list() {
+      const names = new Set()
+      ;(db.ingredients || []).forEach((i) => { if (i.supplier) names.add(i.supplier) })
+      ;(db.purchaseOrders || []).forEach((po) => { if (po.supplier) names.add(po.supplier) })
+      ;(db.deliveries || []).forEach((d) => { if (d.supplier) names.add(d.supplier) })
+      ;(db.savedSuppliers || []).forEach((s) => names.add(s))
+      return Promise.resolve([...names].sort())
+    },
+    add(name) {
+      if (!name || !name.trim()) return Promise.reject(new Error('Supplier name is required'))
+      db.savedSuppliers = db.savedSuppliers || []
+      const trimmed = name.trim()
+      if (!db.savedSuppliers.includes(trimmed)) {
+        db.savedSuppliers.push(trimmed)
+        save(db)
+      }
+      return Promise.resolve(trimmed)
+    },
+    remove(name) {
+      db.savedSuppliers = (db.savedSuppliers || []).filter((s) => s !== name)
       save(db)
       return Promise.resolve()
     },
@@ -1163,9 +1248,9 @@ export const api = {
       return Promise.resolve(list.slice(0, limit))
     },
     todayConsumed() {
-      const today = new Date().toISOString().split('T')[0]
+      const today = localDate()
       const list = (db.stockLogs || []).filter(
-        (l) => l.action === 'consumed' && l.createdAt && l.createdAt.startsWith(today)
+        (l) => l.action === 'consumed' && l.createdAt && localDate(new Date(l.createdAt)) === today
       )
       // Group by itemName and sum quantities (stored as negative, so negate)
       const grouped = {}

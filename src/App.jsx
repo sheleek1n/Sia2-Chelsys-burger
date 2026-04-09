@@ -4,13 +4,12 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
 import { pagesConfig } from './pages.config'
 import CashierEntry from './pages/CashierEntry'
-import DisplayNameEntry from './pages/DisplayNameEntry'
 
-const { Pages, Layout, mainPage, Login } = pagesConfig
+const { Pages, Layout, mainPage } = pagesConfig
 const mainPageKey = mainPage ?? Object.keys(Pages)[0]
 const MainPage = mainPageKey ? Pages[mainPageKey] : () => null
 
-const ADMIN_ONLY_PAGES = ['Dashboard', 'Products', 'SupplyChain']
+const ADMIN_ONLY_PAGES = ['Dashboard', 'Products', 'SupplyChain', 'Settings']
 
 function LayoutWrapper({ children, currentPageName }) {
   if (!Layout) return <>{children}</>
@@ -51,9 +50,9 @@ function ProtectedRoute({ children, pageName }) {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/admin-login" element={<Login />} />
+      <Route path="/admin-login" element={<Navigate to="/cashier-entry" replace />} />
       <Route path="/cashier-entry" element={<CashierEntry />} />
-      <Route path="/display-name-entry" element={<DisplayNameEntry />} />
+      <Route path="/display-name-entry" element={<Navigate to="/cashier-entry" replace />} />
       <Route
         path="/"
         element={

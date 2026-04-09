@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -19,7 +20,7 @@ const StatusBadge = ({ status }) => {
   const config = {
     pending:   { bg: 'bg-gray-100', text: 'text-gray-700',   label: 'Pending' },
     ordered:   { bg: 'bg-blue-100', text: 'text-blue-700',   label: 'Ordered' },
-    partially_received: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Partially Received' },
+    partially_received: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Incomplete' },
     received:  { bg: 'bg-green-100', text: 'text-green-700', label: 'Received' },
     cancelled: { bg: 'bg-red-100', text: 'text-red-700',     label: 'Cancelled' },
   }
@@ -28,8 +29,10 @@ const StatusBadge = ({ status }) => {
 }
 
 // ─── Create Purchase Order Dialog ────────────────────────────────────
-function CreatePODialog({ open, onClose, onSuccess, ingredients }) {
+function CreatePODialog({ open, onClose, onSuccess, ingredients, savedSuppliers, onSupplierAdded }) {
   const [supplier, setSupplier] = useState('')
+  const [newSupplier, setNewSupplier] = useState('')
+  const [showNewSupplier, setShowNewSupplier] = useState(false)
   const [expectedDate, setExpectedDate] = useState('')
   const [notes, setNotes] = useState('')
   const [items, setItems] = useState([])
@@ -40,12 +43,24 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients }) {
   useEffect(() => {
     if (open) {
       setSupplier('')
-      setExpectedDate(new Date().toISOString().split('T')[0])
+      setNewSupplier('')
+      setShowNewSupplier(false)
+      setExpectedDate(format(new Date(), 'yyyy-MM-dd'))
       setNotes('')
       setItems([])
       setSelectedIngredientId('')
     }
   }, [open])
+
+  const handleAddNewSupplier = async () => {
+    if (!newSupplier.trim()) return
+    await api.suppliers.add(newSupplier.trim())
+    setSupplier(newSupplier.trim())
+    setNewSupplier('')
+    setShowNewSupplier(false)
+    if (onSupplierAdded) onSupplierAdded()
+    toast.success(`Supplier "${newSupplier.trim()}" saved`)
+  }
 
   const availableIngredients = ingredients.filter(
     (ing) => !items.find((i) => String(i.ingredientId) === String(ing.id))
@@ -114,97 +129,137 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients }) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[95vw] max-w-6xl max-h-[92vh] overflow-hidden flex flex-col">
-        <DialogHeader><DialogTitle>Create Purchase Order</DialogTitle></DialogHeader>
-        <div className="space-y-6 mt-2 flex-1 overflow-y-auto pr-1">
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <DialogContent className="w-[95vw] max-w-2xl max-h-[92vh] flex flex-col min-w-0">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold">New Order from Supplier</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-5 pr-1 mt-2 min-h-0 min-w-0">
+
+          {/* Supplier row */}
+          <div className="w-full min-w-0">
+            <Label className="text-sm font-semibold mb-2 block">Supplier</Label>
+            {showNewSupplier ? (
+              <div className="w-full min-w-0 space-y-2">
+                <Input
+                  value={newSupplier}
+                  onChange={(e) => setNewSupplier(e.target.value)}
+                  placeholder="Enter new supplier name..."
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddNewSupplier()}
+                  autoFocus
+                  className="w-full max-w-full h-10"
+                />
+                <div className="flex w-full flex-col items-end gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => { setShowNewSupplier(false); setNewSupplier('') }}>Cancel</Button>
+                  <Button type="button" size="sm" onClick={handleAddNewSupplier} disabled={!newSupplier.trim()}>Save Supplier</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={supplier}
+                  onChange={(e) => setSupplier(e.target.value)}
+                  className="flex-1 h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#B01010]/30 focus:border-[#B01010]"
+                >
+                  <option value="">— Select a supplier —</option>
+                  {savedSuppliers.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <Button type="button" variant="outline" onClick={() => setShowNewSupplier(true)} className="whitespace-nowrap flex-shrink-0">
+                  + New Supplier
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Date + Notes row */}
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Supplier Name</Label>
-              <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="e.g. Local Meat Co." className="mt-1" />
+              <Label className="text-sm font-semibold mb-2 block">Expected Delivery Date</Label>
+              <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="h-10" />
             </div>
             <div>
-              <Label>Expected Delivery Date</Label>
-              <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="mt-1" />
-            </div>
-            <div className="col-span-2">
-              <Label>Notes (Optional)</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. please deliver to back door" className="mt-1" />
+              <Label className="text-sm font-semibold mb-2 block">Notes <span className="font-normal text-slate-400">(optional)</span></Label>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. deliver to back door" className="h-10" />
             </div>
           </div>
 
-          <div className="bg-slate-50 border rounded-xl overflow-visible">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left min-w-[600px]">
-                <thead className="bg-slate-100 border-b">
+          {/* Items table */}
+          <div>
+            <Label className="text-sm font-semibold mb-2 block">Items to Order</Label>
+            <div className="border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="px-3 py-2 font-medium min-w-[200px]">Inventory Item</th>
-                    <th className="px-3 py-2 font-medium w-28">Qty to Order</th>
-                    <th className="px-3 py-2 font-medium w-36">Unit</th>
-                    <th className="px-3 py-2 font-medium w-36">Unit Cost (₱)</th>
-                    <th className="px-3 py-2 font-medium w-36 text-right">Line Total</th>
-                    <th className="px-3 py-2 w-12 text-center"></th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600 text-left">Item</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600 text-left w-24">Qty</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600 text-left w-28">Unit</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600 text-left w-32">Cost (₱)</th>
+                    <th className="px-4 py-2.5 font-semibold text-slate-600 text-right w-28">Subtotal</th>
+                    <th className="w-10" />
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y bg-white">
                   {items.length === 0 && (
-                    <tr><td colSpan={6} className="p-8 text-center text-slate-500 border-b border-dashed">No items added yet. Select an inventory item below to begin.</td></tr>
+                    <tr>
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">
+                        No items yet — select an item below to add it
+                      </td>
+                    </tr>
                   )}
                   {items.map((item, idx) => (
-                    <tr key={idx} className="bg-white">
-                      <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">
-                        {item.name}
+                    <tr key={idx} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2.5 font-medium text-slate-800">{item.name}</td>
+                      <td className="px-4 py-2.5">
+                        <Input type="number" min="1" step="1" value={item.quantity} onFocus={(e) => e.target.select()} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} className="h-8 w-20" />
                       </td>
-                      <td className="px-3 py-2"><Input type="number" min="1" step="1" value={item.quantity} onFocus={(e) => e.target.select()} onChange={(e) => updateItem(idx, 'quantity', e.target.value)} className="h-9 min-w-[80px]" /></td>
-                      <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{item.unit || 'units'}</td>
-                      <td className="px-3 py-2"><Input type="number" min="0" step="0.01" value={item.unitCost} onFocus={(e) => e.target.select()} onChange={(e) => updateItem(idx, 'unitCost', e.target.value)} className="h-9 min-w-[100px]" /></td>
-                      <td className="px-3 py-2 text-right font-medium text-slate-700 whitespace-nowrap">₱{(item.quantity * item.unitCost).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-center">
-                        <button onClick={() => handleRemoveItem(idx)} className="text-red-400 hover:text-red-600 p-1"><X className="w-4 h-4" /></button>
+                      <td className="px-4 py-2.5 text-slate-500 text-xs">{item.unit || 'units'}</td>
+                      <td className="px-4 py-2.5">
+                        <Input type="number" min="0" step="0.01" value={item.unitCost} onFocus={(e) => e.target.select()} onChange={(e) => updateItem(idx, 'unitCost', e.target.value)} className="h-8 w-24" />
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-slate-700">₱{(item.quantity * item.unitCost).toFixed(2)}</td>
+                      <td className="px-2 py-2.5 text-center">
+                        <button type="button" onClick={() => handleRemoveItem(idx)} className="text-slate-300 hover:text-red-500 transition-colors p-1">
+                          <X className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="p-3 bg-slate-50 border-t flex justify-between items-center">
-              <div className="flex-1 max-w-sm flex gap-2">
+
+              {/* Add item row */}
+              <div className="px-4 py-3 bg-slate-50 border-t flex items-center gap-3">
                 <select
                   value={selectedIngredientId}
                   onChange={(e) => setSelectedIngredientId(e.target.value)}
                   disabled={availableIngredients.length === 0}
-                  className="flex-1 h-9 rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex-1 h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#B01010]/30 disabled:opacity-50"
                 >
-                  <option value="">
-                    {availableIngredients.length === 0 ? 'All inventory items added' : 'Select inventory item...'}
-                  </option>
+                  <option value="">{availableIngredients.length === 0 ? 'All items added' : 'Select item to add...'}</option>
                   {availableIngredients.map((ing) => (
                     <option key={ing.id} value={String(ing.id)}>{ing.name}</option>
                   ))}
                 </select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleSelectNewItem}
-                  disabled={!selectedIngredientId || availableIngredients.length === 0}
-                  className="h-9"
-                >
-                  Add
+                <Button type="button" variant="outline" onClick={handleSelectNewItem} disabled={!selectedIngredientId} className="h-9 whitespace-nowrap">
+                  + Add Item
                 </Button>
-              </div>
-              <div className="text-right">
-                <span className="text-sm text-slate-500 mr-4">Total Cost</span>
-                <span className="text-xl font-bold text-[#B01010]">{formatCurrency(grandTotal)}</span>
+                <div className="ml-auto text-right whitespace-nowrap">
+                  <span className="text-xs text-slate-500">Total</span>
+                  <span className="ml-2 text-lg font-bold text-[#B01010]">{formatCurrency(grandTotal)}</span>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button disabled={loading} onClick={handleSubmit} className="bg-[#B01010] hover:bg-[#8A0C0C]">
-              {loading ? 'Creating...' : 'Create PO'}
-            </Button>
-          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t mt-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={loading} onClick={handleSubmit} className="bg-[#B01010] hover:bg-[#8A0C0C] px-6">
+            {loading ? 'Creating...' : 'Create Order'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -212,7 +267,7 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients }) {
 }
 
 // ─── Receive Delivery Dialog ─────────────────────────────────────────
-function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePOs, currentUser, completionPO = null }) {
+function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePOs, currentUser, completionPO = null, savedSuppliers, onSupplierAdded }) {
   const [sourceType, setSourceType] = useState('po') // 'po' or 'direct'
   const [selectedPOId, setSelectedPOId] = useState('')
   const [selectedDirectIngredientId, setSelectedDirectIngredientId] = useState('')
@@ -298,7 +353,7 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
       setSelectedPOId(completionPO?.id || '')
       setSelectedDirectIngredientId('')
       setSupplier(completionPO?.supplier || '')
-      setReceivedDate(new Date().toISOString().split('T')[0])
+      setReceivedDate(format(new Date(), 'yyyy-MM-dd'))
       setNotes('')
       setItems([])
     }
@@ -401,7 +456,7 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[95vw] max-w-7xl max-h-[92vh] overflow-hidden flex flex-col">
-        <DialogHeader><DialogTitle>{isCompletingPartial ? 'Complete Delivery' : 'Receive Delivery'}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{isCompletingPartial ? 'Mark as Done' : 'Record Delivery'}</DialogTitle></DialogHeader>
         
         <div className="space-y-6 mt-2 flex-1 overflow-y-auto pr-1">
           {/* Source Toggle */}
@@ -411,13 +466,13 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
                 className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${sourceType === 'po' ? 'bg-white shadow text-[#B01010]' : 'text-slate-500 hover:text-slate-700'}`}
                 onClick={() => setSourceType('po')}
               >
-                Against Purchase Order
+                From an existing order
               </button>
               <button 
                 className={`flex-1 py-2 text-sm font-semibold rounded-md transition-all ${sourceType === 'direct' ? 'bg-white shadow text-[#B01010]' : 'text-slate-500 hover:text-slate-700'}`}
                 onClick={() => setSourceType('direct')}
               >
-                Direct (No PO)
+                Walk-in / No order
               </button>
             </div>
           )}
@@ -453,7 +508,20 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
 
             <div>
               <Label>Supplier Name</Label>
-              <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} disabled={sourceType === 'po' || isCompletingPartial} className="mt-1" />
+              {sourceType === 'po' || isCompletingPartial ? (
+                <Input value={supplier} disabled className="mt-1" />
+              ) : (
+                <Select value={supplier} onValueChange={setSupplier}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select supplier..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {savedSuppliers.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div>
               <Label>Date Received</Label>
@@ -662,6 +730,82 @@ function DeliveryDetailModal({ delivery, onClose }) {
   )
 }
 
+// ─── Manage Suppliers Modal ──────────────────────────────────────────
+function ManageSuppliersModal({ open, onClose, savedSuppliers, onChanged }) {
+  const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleAdd = async (e) => {
+    e.preventDefault()
+    if (!newName.trim()) return
+    setSaving(true)
+    try {
+      await api.suppliers.add(newName.trim())
+      toast.success(`"${newName.trim()}" added`)
+      setNewName('')
+      onChanged()
+    } catch (err) {
+      toast.error(err.message || 'Failed to add supplier')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (name) => {
+    try {
+      await api.suppliers.remove(name)
+      toast.success(`"${name}" removed`)
+      onChanged()
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove supplier')
+    }
+  }
+
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+      <div className="bg-white rounded-xl shadow-xl w-[95vw] max-w-sm mx-4">
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-semibold text-gray-900">Manage Suppliers</h3>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-4 space-y-4">
+          <form onSubmit={handleAdd} className="flex gap-2">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="New supplier name..."
+              className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#B01010]/30 focus:border-[#B01010]"
+            />
+            <Button type="submit" size="sm" disabled={saving || !newName.trim()}>Add</Button>
+          </form>
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {savedSuppliers.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-4">No saved suppliers yet</p>
+            )}
+            {savedSuppliers.map((s) => (
+              <div key={s} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 group">
+                <span className="text-sm text-gray-800">{s}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(s)}
+                  className="text-gray-300 hover:text-red-500 group-hover:text-gray-400 transition-colors"
+                  title="Remove"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────
 export default function SupplyChain() {
   const { user } = useAuth()
@@ -678,6 +822,10 @@ export default function SupplyChain() {
   const [receiveDelOpen, setReceiveDelOpen] = useState(false)
   const [viewDelivery, setViewDelivery] = useState(null)
   const [completionPO, setCompletionPO] = useState(null)
+  const [manageSuppliersOpen, setManageSuppliersOpen] = useState(false)
+  const [savedSuppliers, setSavedSuppliers] = useState([])
+
+  const loadSuppliers = () => api.suppliers.list().then(setSavedSuppliers)
 
   const loadData = async () => {
     setLoading(true)
@@ -690,6 +838,7 @@ export default function SupplyChain() {
       setIngredients(ings)
       setPos(p)
       setDeliveries(d)
+      await loadSuppliers()
       setLoading(false)
     } catch (_err) {
       setLoading(false)
@@ -722,42 +871,51 @@ export default function SupplyChain() {
 
   return (
     <div className="flex flex-col h-full gap-4 pb-4">
-      <div className="flex justify-between items-end">
-        <PageHeader title="Supply Chain" subtitle="Manage purchase orders and incoming supplier deliveries" />
-        <div className="flex gap-3 relative top-[-4px]">
-          <Button variant="outline" className="gap-2 font-semibold shadow-sm text-[#B01010] border-[#B01010]/20 hover:bg-[#B01010]/5" onClick={() => setCreatePoOpen(true)}>
-            <ShoppingBag className="w-4 h-4" /> Create Purchase Order
+      <div className="flex justify-between items-center mb-5">
+        <div>
+          <h1 className="text-2xl font-bold">Deliveries</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Track supplier orders and incoming stock</p>
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="outline" className="whitespace-nowrap font-semibold text-slate-600 border-slate-200 hover:bg-slate-50" onClick={() => setManageSuppliersOpen(true)}>
+            Suppliers
           </Button>
-          <Button className="gap-2 font-semibold bg-green-600 hover:bg-green-700 shadow-sm" onClick={() => { setCompletionPO(null); setReceiveDelOpen(true) }}>
-            <PackageCheck className="w-4 h-4" /> Receive Delivery
+          <Button variant="outline" className="whitespace-nowrap gap-2 font-semibold text-[#B01010] border-[#B01010]/30 hover:bg-[#B01010]/5" onClick={() => setCreatePoOpen(true)}>
+            <ShoppingBag className="w-4 h-4" /> New Order
+          </Button>
+          <Button className="whitespace-nowrap gap-2 font-semibold bg-green-600 hover:bg-green-700" onClick={() => { setCompletionPO(null); setReceiveDelOpen(true) }}>
+            <PackageCheck className="w-4 h-4" /> Record Delivery
           </Button>
         </div>
       </div>
 
       {/* Summary Bar */}
-      <div className="grid grid-cols-3 gap-4 mb-2">
-        <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center justify-between">
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="bg-white border rounded-xl px-5 py-4 shadow-sm flex items-center gap-4">
+          <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 flex-shrink-0">
+            <AlertCircle className="w-5 h-5" />
+          </div>
           <div>
-            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Pending Orders</p>
-            <p className="text-2xl font-bold flex items-center gap-2">
-              {stats.pending > 0 && <AlertCircle className="w-5 h-5 text-amber-500" />}
-              {stats.pending}
-            </p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Pending</p>
+            <p className="text-2xl font-bold">{stats.pending}</p>
           </div>
         </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center justify-between">
+        <div className="bg-white border rounded-xl px-5 py-4 shadow-sm flex items-center gap-4">
+          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 flex-shrink-0">
+            <ShoppingBag className="w-5 h-5" />
+          </div>
           <div>
-            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Ordered (In Transit)</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">In Transit</p>
             <p className="text-2xl font-bold text-blue-600">{stats.ordered}</p>
           </div>
         </div>
-        <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center justify-between">
+        <div className="bg-white border rounded-xl px-5 py-4 shadow-sm flex items-center gap-4">
+          <div className="p-2.5 rounded-xl bg-green-50 text-green-600 flex-shrink-0">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
           <div>
-            <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-1">Received This Month</p>
-            <p className="text-2xl font-bold text-green-600 flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-green-500" />
-              {stats.receivedMonth}
-            </p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Received this month</p>
+            <p className="text-2xl font-bold text-green-600">{stats.receivedMonth}</p>
           </div>
         </div>
       </div>
@@ -765,10 +923,10 @@ export default function SupplyChain() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
         <TabsList className="w-full justify-start border-b rounded-none bg-transparent h-auto p-0 mb-4 space-x-6">
           <TabsTrigger value="po" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[#B01010] data-[state=active]:text-[#B01010] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 py-2 font-semibold text-base">
-            Purchase Orders
+            My Orders
           </TabsTrigger>
           <TabsTrigger value="deliveries" className="rounded-none border-b-2 border-transparent data-[state=active]:border-[#B01010] data-[state=active]:text-[#B01010] data-[state=active]:bg-transparent data-[state=active]:shadow-none px-0 py-2 font-semibold text-base">
-            Incoming Deliveries
+            Received
           </TabsTrigger>
         </TabsList>
 
@@ -853,7 +1011,7 @@ export default function SupplyChain() {
                             className="h-7 text-xs font-semibold text-orange-700 border-orange-200 hover:bg-orange-50"
                             disabled={deliveries.some((delivery) => delivery.purchaseOrderRefId === po.id && delivery.isPartialCompletion)}
                           >
-                            Complete Delivery
+                            Mark as Done
                           </Button>
                         </div>
                       )}
@@ -915,13 +1073,15 @@ export default function SupplyChain() {
         </TabsContent>
       </Tabs>
 
-      <CreatePODialog 
-        open={createPoOpen} 
-        onClose={() => setCreatePoOpen(false)} 
+      <CreatePODialog
+        open={createPoOpen}
+        onClose={() => setCreatePoOpen(false)}
         onSuccess={loadData}
         ingredients={ingredients}
+        savedSuppliers={savedSuppliers}
+        onSupplierAdded={loadSuppliers}
       />
-      
+
       <ReceiveDeliveryDialog
         open={receiveDelOpen}
         onClose={() => { setReceiveDelOpen(false); setCompletionPO(null) }}
@@ -930,11 +1090,20 @@ export default function SupplyChain() {
         activePOs={pos}
         currentUser={user}
         completionPO={completionPO}
+        savedSuppliers={savedSuppliers}
+        onSupplierAdded={loadSuppliers}
       />
 
       <DeliveryDetailModal
         delivery={viewDelivery}
         onClose={() => setViewDelivery(null)}
+      />
+
+      <ManageSuppliersModal
+        open={manageSuppliersOpen}
+        onClose={() => setManageSuppliersOpen(false)}
+        savedSuppliers={savedSuppliers}
+        onChanged={loadSuppliers}
       />
     </div>
   )

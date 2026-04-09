@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
 import { Plus, Minus, Trash2, ShoppingCart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -148,7 +149,7 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
       amount_tendered: paymentMethod === 'cash' && amountTendered !== '' ? tenderedAmount : null,
       change_amount: paymentMethod === 'cash' && amountTendered !== '' ? changeAmount : null,
       status: 'completed',
-      order_date: new Date().toISOString().split('T')[0],
+      order_date: format(new Date(), 'yyyy-MM-dd'),
       created_at: new Date().toISOString(),
       notes,
     })

@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban, Download } from 'lucide-react'
+import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban, Download, MoreHorizontal, RotateCcw, RefreshCw } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
+import { getPaymentLabel } from '@/utils'
 import { toast } from 'sonner'
 import ReceiptModal from '@/components/orders/ReceiptModal'
 
@@ -18,21 +19,17 @@ const statusColors = {
   voided:    'bg-gray-200 text-gray-500',
 }
 
+const statusLabels = {
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+  voided: 'Cancelled',
+}
+
 const paymentBadgeColors = {
   cash: 'bg-green-100 text-green-700',
   gcash: 'bg-blue-100 text-blue-700',
 }
-
-function getPaymentLabel(method) {
-  return method === 'gcash' ? 'GCash' : 'Cash'
-}
-
-const PRESET_NOTES = [
-  'Wrong Order',
-  'Item Spilled',
-  'Customer Complaint',
-  'Other',
-]
 
 const MAX_NOTE_LENGTH = 200
 
@@ -56,18 +53,18 @@ function VoidOrderModal({ order, onClose, onConfirm }) {
       <div className="bg-card w-full max-w-md rounded-xl shadow-xl overflow-hidden mx-4">
         <div className="px-5 py-4 border-b flex items-center gap-2">
           <Ban className="w-5 h-5 text-red-600" />
-          <h3 className="font-semibold text-base">Void Order {order.order_number}?</h3>
+          <h3 className="font-semibold text-base">Cancel Order {order.order_number}?</h3>
         </div>
         <div className="p-5 space-y-4">
           <p className="text-sm text-muted-foreground">
-            This will mark the order as voided and exclude it from all sales reports.
+            This will mark the order as cancelled and exclude it from all sales reports.
           </p>
           <div>
-            <label className="text-sm font-medium block mb-1.5">Note (optional)</label>
+            <label className="text-sm font-medium block mb-1.5">Reason (optional)</label>
             <textarea
               value={voidNote}
               onChange={(e) => setVoidNote(e.target.value)}
-              placeholder="Add a reason or note..."
+              placeholder="Add a reason for cancellation..."
               rows={3}
               className="w-full text-sm border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             />
@@ -75,17 +72,19 @@ function VoidOrderModal({ order, onClose, onConfirm }) {
         </div>
         <div className="px-5 py-4 border-t bg-muted/20 flex justify-end gap-3">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium rounded-lg hover:bg-muted transition-colors"
           >
-            Cancel
+            Go Back
           </button>
           <button
+            type="button"
             onClick={handleConfirm}
             disabled={loading}
             className="px-5 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
           >
-            {loading ? 'Voiding...' : 'Void Order'}
+            {loading ? 'Cancelling...' : 'Cancel Order'}
           </button>
         </div>
       </div>
@@ -116,57 +115,43 @@ function IncidentNoteModal({ order, onClose, onSave }) {
         <div className="px-5 py-4 border-b flex items-center justify-between bg-amber-500 text-white">
           <div className="flex items-center gap-2 font-semibold">
             <AlertTriangle className="w-5 h-5" />
-            <span>Incident Note - {order.order_number}</span>
+            <span>Incident Description - {order.order_number}</span>
           </div>
-          <button onClick={onClose} className="hover:bg-amber-600 p-1.5 rounded-lg transition-colors">
+          <button type="button" onClick={onClose} className="hover:bg-amber-600 p-1.5 rounded-lg transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
         <div className="p-5">
-          <div className="text-sm text-muted-foreground mb-4">
-            Add or edit an incident note for this order. Examples include remade items, wrong payment, or customer complaints. Saving an empty note will remove the flag.
-          </div>
-
-          {/* Presets */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {PRESET_NOTES.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setNoteText((prev) => (prev ? `${prev} — ${preset}` : preset))}
-                className="text-sm px-3 py-1.5 rounded-full border bg-background hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 transition-colors"
-              >
-                {preset}
-              </button>
-            ))}
-          </div>
-
-          {/* Textarea */}
+          <p className="text-sm text-muted-foreground mb-3">
+            Describe what happened. Leave blank to remove the flag.
+          </p>
           <textarea
             value={noteText}
             onChange={(e) => {
               if (e.target.value.length <= MAX_NOTE_LENGTH) setNoteText(e.target.value)
             }}
-            placeholder="Describe what happened..."
+            placeholder="e.g. Wrong order, item spilled, customer complaint..."
             rows={4}
-            className="w-full text-sm border rounded-lg px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none mb-2"
+            className="w-full text-sm border rounded-lg px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none mb-1"
           />
-          <div className="text-xs text-muted-foreground text-right pr-1">
-            {noteText.length}/{MAX_NOTE_LENGTH} characters
+          <div className="text-xs text-muted-foreground text-right">
+            {noteText.length}/{MAX_NOTE_LENGTH}
           </div>
         </div>
 
         {/* Footer */}
         <div className="px-5 py-4 border-t bg-muted/20 flex justify-end gap-3">
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium rounded-lg hover:bg-muted transition-colors"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
             disabled={saving}
             className="px-5 py-2 text-sm font-medium rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50"
@@ -181,6 +166,7 @@ function IncidentNoteModal({ order, onClose, onSave }) {
 
 export default function Orders() {
   const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [orders, setOrders] = useState([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -196,6 +182,28 @@ export default function Orders() {
   const [receiptOrder, setReceiptOrder] = useState(null)
   const [noteOrder, setNoteOrder] = useState(null)
   const [voidingOrder, setVoidingOrder] = useState(null)
+  const [openMenuId, setOpenMenuId] = useState(null)
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpenMenuId(null)
+    }
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        if (openMenuId) setOpenMenuId(null)
+        else if (receiptOrder) setReceiptOrder(null)
+        else if (noteOrder) setNoteOrder(null)
+        else if (voidingOrder) setVoidingOrder(null)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [openMenuId, receiptOrder, noteOrder, voidingOrder])
 
   const loadData = () => {
     setLoading(true)
@@ -236,37 +244,62 @@ export default function Orders() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `orders-${format(new Date(), 'yyyy-MM-dd')}.csv`
     a.click()
     URL.revokeObjectURL(url)
     toast.success(`Exported ${filtered.length} orders`)
   }
 
   const handleSaveNote = async (orderId, noteText) => {
-    await api.orders.update(orderId, { incidentNote: noteText || null })
-    toast.success('Incident note updated')
-    setNoteOrder(null)
-    loadData()
+    try {
+      await api.orders.update(orderId, { incidentNote: noteText || null })
+      toast.success('Incident note updated')
+      setNoteOrder(null)
+      loadData()
+    } catch { toast.error('Failed to save note') }
   }
 
   const handleVoid = async (orderId, note) => {
-    const order = orders.find((o) => o.id === orderId)
-    await api.orders.update(orderId, {
-      status: 'voided',
-      voidNote: note || null,
-      voidedAt: new Date().toISOString(),
-      voidedBy: user?.full_name || 'Admin',
-    })
-    toast.success(`Order ${order?.order_number} has been voided.`)
-    setVoidingOrder(null)
-    loadData()
+    try {
+      const order = orders.find((o) => o.id === orderId)
+      await api.orders.update(orderId, {
+        status: 'voided',
+        voidNote: note || null,
+        voidedAt: new Date().toISOString(),
+        voidedBy: user?.full_name || 'Admin',
+      })
+      toast.success(`Order ${order?.order_number} has been cancelled.`)
+      setVoidingOrder(null)
+      loadData()
+    } catch { toast.error('Failed to cancel order') }
+  }
+
+  const handleRestore = async (orderId) => {
+    try {
+      const order = orders.find((o) => o.id === orderId)
+      await api.orders.update(orderId, { status: 'completed', voidNote: null, voidedAt: null, voidedBy: null })
+      toast.success(`Order ${order?.order_number} restored to completed.`)
+      loadData()
+    } catch { toast.error('Failed to restore order') }
+  }
+
+  const handleRefund = async (orderId) => {
+    try {
+      const order = orders.find((o) => o.id === orderId)
+      await api.orders.update(orderId, { status: 'refunded' })
+      toast.success(`Order ${order?.order_number} marked as refunded.`)
+      loadData()
+    } catch { toast.error('Failed to refund order') }
   }
 
   const filtered = orders.filter((o) => {
-    const matchSearch =
-      o.order_number?.toLowerCase().includes(search.toLowerCase()) ||
-      o.cashier_name?.toLowerCase().includes(search.toLowerCase())
-    const matchStatus = statusFilter === 'all' || o.status === statusFilter
+    const q = search.toLowerCase()
+    const matchSearch = !q ||
+      o.order_number?.toLowerCase().includes(q) ||
+      o.cashier_name?.toLowerCase().includes(q) ||
+      (o.items || []).some((item) => item.menu_item_name?.toLowerCase().includes(q))
+    const matchStatus = statusFilter === 'all' ||
+      (statusFilter === 'voided' ? (o.status === 'voided' || o.status === 'cancelled') : o.status === statusFilter)
     const matchPayment = paymentFilter === 'all' || (o.payment_method || 'cash') === paymentFilter
     const matchFlagged = !flaggedOnly || !!o.incidentNote
     const matchFrom = !dateFrom || (o.order_date && o.order_date >= dateFrom)
@@ -276,7 +309,7 @@ export default function Orders() {
 
   const totalRevenue = filtered.filter((o) => o.status === 'completed').reduce((s, o) => s + (o.total_amount || 0), 0)
   const totalFlagged = orders.filter((o) => !!o.incidentNote).length
-  const today = new Date().toISOString().split('T')[0]
+  const today = format(new Date(), 'yyyy-MM-dd')
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / ORDERS_PER_PAGE))
@@ -288,26 +321,27 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Orders" subtitle="All sales transactions" />
-      <div className="flex flex-wrap gap-3 mb-4 items-end">
+      <PageHeader title="Order History" subtitle="View and manage past orders" />
+
+      {/* Filter bar — row 1: search + dropdowns */}
+      <div className="flex gap-2 mb-2 items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search order # or cashier..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder="Search order #, cashier, or item..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-36">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
             <SelectItem value="refunded">Refunded</SelectItem>
-            <SelectItem value="voided">Voided</SelectItem>
+            <SelectItem value="voided">Cancelled</SelectItem>
           </SelectContent>
         </Select>
         <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-36">
             <SelectValue placeholder="Payment" />
           </SelectTrigger>
           <SelectContent>
@@ -316,42 +350,47 @@ export default function Orders() {
             <SelectItem value="gcash">GCash</SelectItem>
           </SelectContent>
         </Select>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">From</label>
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="w-40"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">To</label>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="w-40"
-          />
-        </div>
+      </div>
+
+      {/* Filter bar — row 2: date range + shortcuts */}
+      <div className="flex gap-2 mb-4 items-center">
+        <span className="text-xs text-muted-foreground font-medium">Date:</span>
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="w-40 h-9 text-sm"
+        />
+        <span className="text-muted-foreground text-sm">–</span>
+        <Input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="w-40 h-9 text-sm"
+        />
         <button
           type="button"
-          onClick={() => {
-            setDateFrom(today)
-            setDateTo(today)
-          }}
-          className="h-10 rounded-md border border-input bg-background px-4 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+          onClick={() => { setDateFrom(today); setDateTo(today) }}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
         >
           Today
         </button>
-        {/* Flagged Only Toggle */}
         <button
+          type="button"
+          onClick={() => { setDateFrom(''); setDateTo('') }}
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted/50"
+        >
+          All Time
+        </button>
+        <div className="flex-1" />
+        <button
+          type="button"
           onClick={() => setFlaggedOnly(!flaggedOnly)}
-          className={`inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border transition-colors ${flaggedOnly
-            ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
-            : 'bg-background border-input text-muted-foreground hover:bg-muted/50'
-            }`}
-          title="Show only orders with incident notes"
+          className={`inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border transition-colors ${
+            flaggedOnly
+              ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+              : 'bg-background border-input text-muted-foreground hover:bg-muted/50'
+          }`}
         >
           <AlertTriangle className="w-4 h-4" />
           Flagged{totalFlagged > 0 ? ` (${totalFlagged})` : ''}
@@ -363,14 +402,17 @@ export default function Orders() {
           <span className="text-sm font-medium text-muted-foreground">{filtered.length} orders</span>
           <div className="flex items-center gap-3">
             <span className="text-sm font-semibold">Total: ₱{totalRevenue.toLocaleString()}</span>
-            <button
-              onClick={exportCSV}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
-              title="Export filtered orders as CSV"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Export CSV
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={exportCSV}
+                className="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors shadow-sm"
+                title="Download filtered orders as CSV"
+              >
+                <Download className="w-4 h-4" />
+                Download Report
+              </button>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -399,7 +441,7 @@ export default function Orders() {
               )}
               {!loading && paginatedOrders.map((o) => (
                 <>
-                  <tr key={o.id} className={`border-b last:border-0 hover:bg-muted/20 ${o.incidentNote ? 'bg-amber-50/30' : ''} ${o.status === 'voided' ? 'opacity-50' : ''}`}>
+                  <tr key={o.id} className={`border-b last:border-0 hover:bg-muted/20 ${o.incidentNote ? 'bg-amber-50/30' : ''} ${(o.status === 'voided' || o.status === 'cancelled') ? 'bg-red-50/40' : ''} ${o.status === 'refunded' ? 'bg-yellow-50/40' : ''}`}>
                     <td className="px-5 py-4 font-mono font-semibold">
                       <span className="flex items-center gap-1.5">
                         {o.order_number}
@@ -432,53 +474,69 @@ export default function Orders() {
                     </td>
                     <td className="px-5 py-4 text-right font-semibold">₱{(o.total_amount || 0).toFixed(2)}</td>
                     <td className="px-5 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[o.status]}`}>{o.status}</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[o.status]}`}>{statusLabels[o.status] || o.status}</span>
                     </td>
-                    <td className="px-5 py-4 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-2">
-                        {/* Note Button */}
+                    <td className="px-5 py-4 text-center">
+                      <div className="relative inline-block" ref={openMenuId === o.id ? menuRef : null}>
                         <button
-                          onClick={() => setNoteOrder(o)}
-                          className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${o.incidentNote
-                            ? 'text-amber-700 bg-amber-100 hover:bg-amber-200'
-                            : 'text-muted-foreground hover:text-foreground bg-muted hover:bg-muted/80'
-                            }`}
-                          title={o.incidentNote ? "Edit Note" : "Add Note"}
+                          onClick={() => setOpenMenuId(openMenuId === o.id ? null : o.id)}
+                          className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                          title="Actions"
+                          aria-label="Order actions"
                         >
-                          <FilePenLine className="w-3.5 h-3.5" />
-                          {o.incidentNote ? "Edit Note" : "Note"}
+                          <MoreHorizontal className="w-4 h-4" />
                         </button>
-
-                        {/* Receipt Button */}
-                        {o.status === 'completed' && (
-                          <button
-                            onClick={() => setReceiptOrder(o)}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-full transition-colors"
-                            title="View Receipt"
-                          >
-                            <ReceiptText className="w-3.5 h-3.5" />
-                            Receipt
-                          </button>
-                        )}
-
-                        {/* Void Button — admin only, completed orders only */}
-                        {user?.role === 'admin' && o.status === 'completed' && (
-                          <button
-                            onClick={() => setVoidingOrder(o)}
-                            className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600/70 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-full transition-colors"
-                            title="Void this order"
-                          >
-                            <Ban className="w-3.5 h-3.5" />
-                            Void
-                          </button>
-                        )}
-
-                        {/* VOIDED badge — non-interactive, for already-voided rows */}
-                        {o.status === 'voided' && (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-400 bg-gray-100 px-3 py-1.5 rounded-full cursor-default">
-                            <Ban className="w-3 h-3" />
-                            VOIDED
-                          </span>
+                        {openMenuId === o.id && (
+                          <div className="absolute right-0 top-8 z-50 w-48 bg-white border rounded-xl shadow-lg py-1 text-sm">
+                            {/* Receipt */}
+                            {o.status === 'completed' && (
+                              <button
+                                onClick={() => { setReceiptOrder(o); setOpenMenuId(null) }}
+                                className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-muted/60 text-left"
+                              >
+                                <ReceiptText className="w-4 h-4 text-primary" />
+                                View Receipt
+                              </button>
+                            )}
+                            {/* Note */}
+                            <button
+                              onClick={() => { setNoteOrder(o); setOpenMenuId(null) }}
+                              className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-muted/60 text-left"
+                            >
+                              <FilePenLine className="w-4 h-4 text-amber-500" />
+                              {o.incidentNote ? 'Edit Note' : 'Add Note'}
+                            </button>
+                            {/* Refund — admin, completed orders */}
+                            {user?.role === 'admin' && o.status === 'completed' && (
+                              <button
+                                onClick={() => { handleRefund(o.id); setOpenMenuId(null) }}
+                                className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-muted/60 text-left text-yellow-700"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                Mark as Refunded
+                              </button>
+                            )}
+                            {/* Cancel Order — admin, completed orders */}
+                            {user?.role === 'admin' && o.status === 'completed' && (
+                              <button
+                                onClick={() => { setVoidingOrder(o); setOpenMenuId(null) }}
+                                className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-red-50 text-left text-red-600"
+                              >
+                                <Ban className="w-4 h-4" />
+                                Cancel Order
+                              </button>
+                            )}
+                            {/* Restore — admin, cancelled/voided/refunded orders */}
+                            {user?.role === 'admin' && (o.status === 'voided' || o.status === 'cancelled' || o.status === 'refunded') && (
+                              <button
+                                onClick={() => { handleRestore(o.id); setOpenMenuId(null) }}
+                                className="w-full flex items-center gap-2.5 px-4 py-2 hover:bg-green-50 text-left text-green-700"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                Restore Order
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -490,7 +548,7 @@ export default function Orders() {
                         <div className="text-sm text-amber-800 flex items-start gap-2 max-w-4xl">
                           <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                           <div>
-                            <span className="font-semibold block mb-0.5">Incident:</span>
+                            <span className="font-semibold block mb-0.5">Incident Description:</span>
                             <span className="text-amber-700">{o.incidentNote}</span>
                           </div>
                         </div>
@@ -506,7 +564,7 @@ export default function Orders() {
                           <Ban className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-400" />
                           <div>
                             <span className="font-semibold block mb-0.5">
-                              Voided by {o.voidedBy || 'Admin'}
+                              Cancelled by {o.voidedBy || 'Admin'}
                               {o.voidedAt ? ` · ${format(new Date(o.voidedAt), 'MMM d, h:mm a')}` : ''}
                             </span>
                             {o.voidNote && <span className="text-gray-500">{o.voidNote}</span>}

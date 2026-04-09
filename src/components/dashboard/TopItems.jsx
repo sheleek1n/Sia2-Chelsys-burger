@@ -15,7 +15,7 @@ export default function TopItems({ orders = [] }) {
     .slice(0, 5)
   return (
     <div className="bg-card rounded-xl border p-5 shadow-sm">
-      <h3 className="font-semibold text-sm mb-4">Top Selling Items Today</h3>
+      <h3 className="font-semibold text-sm mb-4">Best Sellers Today</h3>
       {top.length === 0 && <p className="text-muted-foreground text-sm">No data yet.</p>}
       <div className="space-y-3">
         {top.map(([name, stats], i) => (

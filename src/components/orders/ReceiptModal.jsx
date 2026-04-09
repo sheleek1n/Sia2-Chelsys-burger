@@ -1,10 +1,7 @@
 import { format } from 'date-fns'
 import { X, Printer } from 'lucide-react'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
-
-function getPaymentLabel(method) {
-  return method === 'gcash' ? 'GCash' : 'Cash'
-}
+import { getPaymentLabel } from '@/utils'
 
 export default function ReceiptModal({ order, onClose }) {
   if (!order) return null

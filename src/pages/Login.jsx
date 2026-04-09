@@ -78,17 +78,6 @@ export default function Login() {
           </Button>
         </form>
         
-        <div className="text-center">
-          <button 
-            type="button"
-            onClick={() => navigate('/cashier-entry')}
-            className="text-sm text-muted-foreground hover:text-primary underline"
-          >
-            Back to POS
-          </button>
-        </div>
-        
-        <p className="text-xs text-muted-foreground text-center">Default: admin / admin123</p>
       </div>
     </div>
   )

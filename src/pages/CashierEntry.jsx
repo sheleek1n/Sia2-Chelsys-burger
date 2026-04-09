@@ -32,12 +32,10 @@ export default function CashierEntry() {
       const user = await login(username.trim(), password)
       
       if (user.role === 'cashier') {
-        // Store cashier username and route to name entry
-        setCashierSession(user.username, user.username)
-        navigate('/display-name-entry', { replace: true })
+        setCashierSession(user.username, user.full_name)
+        navigate('/CashierPOS', { replace: true })
       } else if (user.role === 'admin') {
-        // Admin goes straight to dashboard
-        navigate('/Dashboard', { replace: true })
+        navigate('/', { replace: true })
       }
     } catch (_err) {
       setError('Invalid username or password.')

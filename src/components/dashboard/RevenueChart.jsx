@@ -4,7 +4,7 @@ export default function RevenueChart({ data = [], view, onViewChange }) {
   return (
     <div className="bg-card rounded-xl border p-5 shadow-sm">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-sm">Sales Chart</h3>
+        <h3 className="font-semibold text-sm">Sales Overview</h3>
         <div className="flex gap-2">
           <button
             onClick={() => onViewChange('today')}

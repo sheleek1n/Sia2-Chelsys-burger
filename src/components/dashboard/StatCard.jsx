@@ -8,14 +8,14 @@ export default function StatCard({ title, value, subtitle, icon: Icon, color = '
     blue: 'bg-blue-100 text-blue-600',
   }
   return (
-    <div className="bg-card rounded-xl border p-5 flex items-start gap-4 shadow-sm">
-      <div className={`p-3 rounded-xl ${colorMap[color]}`}>
+    <div className="bg-white rounded-xl border p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+      <div className={`p-3 rounded-xl flex-shrink-0 ${colorMap[color]}`}>
         <Icon className="w-5 h-5" />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-muted-foreground text-sm">{title}</p>
-        <p className="text-2xl font-bold mt-0.5 truncate">{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+      <div className="min-w-0">
+        <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">{title}</p>
+        <p className="text-3xl font-bold mt-0.5 leading-none">{value}</p>
+        {subtitle && <p className="text-xs text-muted-foreground mt-1.5">{subtitle}</p>}
       </div>
     </div>
   )

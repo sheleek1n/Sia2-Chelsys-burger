@@ -17,7 +17,7 @@ function getStatus(item) {
 const STATUS_CONFIG = {
   normal:   { badge: '🟢 Normal',   cardCls: 'border-border',              badgeCls: 'bg-green-100 text-green-700' },
   low:      { badge: '🟡 Low',      cardCls: 'border-amber-400 bg-amber-50/40', badgeCls: 'bg-amber-100 text-amber-700' },
-  critical: { badge: '🔴 Critical', cardCls: 'border-red-400 bg-red-50/50',     badgeCls: 'bg-red-100 text-red-700' },
+  critical: { badge: '🔴 Out of Stock', cardCls: 'border-red-400 bg-red-50/50',     badgeCls: 'bg-red-100 text-red-700' },
 }
 const DEFAULT_UNCATEGORIZED_ID = 7
 
@@ -59,7 +59,7 @@ function ItemCard({ item, onOpenPack }) {
               : 'bg-[#B01010] hover:bg-[#8c0d0d] text-white'
           }`}
       >
-        {item.current_stock === 0 ? 'Out of Stock' : 'Open Pack'}
+        {item.current_stock === 0 ? 'Out of Stock' : 'Open New Pack'}
       </button>
     </div>
   )
@@ -79,7 +79,7 @@ function ConfirmModal({ item, onCancel, onConfirm, loading }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
         {/* Header */}
         <div className="bg-[#2c1810] px-5 py-4">
-          <p className="text-white font-bold text-base">Open packs of {item.name}</p>
+          <p className="text-white font-bold text-base">Open New Pack — {item.name}</p>
         </div>
 
         {/* Body */}
@@ -121,16 +121,21 @@ function ConfirmModal({ item, onCancel, onConfirm, loading }) {
             </span>
           </p>
 
-          {/* Optional note */}
-          <textarea
-            className="w-full border border-input rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-            rows={2}
-            maxLength={100}
-            placeholder="Add a note... (optional)"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
-          <p className="text-[11px] text-muted-foreground text-right">{note.length}/100</p>
+          {/* Stock issue note */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">
+              Any stock problem? <span className="font-normal text-gray-400">(optional)</span>
+            </label>
+            <textarea
+              className="w-full border border-input rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+              rows={2}
+              maxLength={150}
+              placeholder="e.g. 2 buns damaged, sauce spilled..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground text-right mt-0.5">{note.length}/150</p>
+          </div>
         </div>
 
         {/* Actions */}
@@ -277,8 +282,8 @@ export default function ProductionLog() {
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Production Log</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Tap an item when you open a new pack</p>
+          <h1 className="text-2xl font-bold text-gray-900">Inventory Log</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Tap an item to log a new pack</p>
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-gray-700">{activeName}</p>
@@ -302,9 +307,9 @@ export default function ProductionLog() {
 
       {/* ── Legend ── */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Normal stock</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Low stock</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Critical</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> OK</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Low</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Out of Stock</span>
         <span className="flex items-center gap-1 ml-auto">
           <AlertTriangle className="w-3 h-3 text-amber-500" />
           Always log before opening a pack

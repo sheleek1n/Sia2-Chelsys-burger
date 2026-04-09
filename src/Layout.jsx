@@ -8,6 +8,7 @@ import {
   PackageOpen,
   Truck,
   UtensilsCrossed,
+  UserCog,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -22,9 +23,10 @@ const NAV_ITEMS = [
   { label: "Home",           icon: Home,            page: "Dashboard",      roles: ["admin"] },
   { label: "New Order",      icon: ShoppingCart,    page: "CashierPOS",    roles: ["admin", "cashier"] },
   { label: "Order History",  icon: History,         page: "Orders",        roles: ["admin", "cashier"] },
-  { label: "Production Log", icon: PackageOpen,     page: "ProductionLog", roles: ["admin", "cashier"] },
+  { label: "Inventory Log", icon: PackageOpen,     page: "ProductionLog", roles: ["admin", "cashier"] },
   { label: "Menu & Stock",   icon: UtensilsCrossed, page: "Products",      roles: ["admin"] },
   { label: "Deliveries",     icon: Truck,           page: "SupplyChain",   roles: ["admin"] },
+  { label: "Accounts",       icon: UserCog,         page: "Settings",      roles: ["admin"] },
 ];
 
 function createPageUrl(page) {
