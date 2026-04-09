@@ -219,8 +219,8 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
                 onClick={() => addToCart(item)}
                 className="relative bg-card border rounded-xl p-4 min-h-[188px] text-center transition-all group flex flex-col items-center justify-center hover:border-primary hover:shadow-md"
               >
-                <div className="text-4xl leading-none">
-                  {getMenuItemIcon(item)}
+                <div className="leading-none">
+                  <MenuItemImage item={item} size="w-16 h-16" emojiSize="text-4xl" />
                 </div>
                 <p className="font-semibold text-sm mt-4 group-hover:text-primary leading-snug">{item.name}</p>
                 <p className="text-primary font-bold text-base mt-1">₱{item.price.toFixed(2)}</p>
