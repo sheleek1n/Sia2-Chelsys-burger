@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/AuthContext'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, ReceiptText, X, Printer, AlertTriangle, FilePenLine, Ban, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, ReceiptText, X, Printer, AlertTriangle, FilePenLine, Ban, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
@@ -293,6 +293,35 @@ export default function Orders() {
     loadData()
   }, [])
 
+  const exportCSV = () => {
+    if (filtered.length === 0) { toast.error('No orders to export'); return }
+
+    const rows = [
+      ['Order #', 'Date', 'Time', 'Cashier', 'Items', 'Total (₱)', 'Payment', 'GCash Ref', 'Status'],
+      ...filtered.map((o) => [
+        o.order_number || '',
+        o.order_date || '',
+        o.created_at ? format(new Date(o.created_at), 'h:mm a') : '',
+        o.cashier_name || '',
+        (o.items || []).map((i) => `${i.menu_item_name} x${i.quantity}`).join(' | '),
+        (o.total_amount || 0).toFixed(2),
+        o.payment_method === 'gcash' ? 'GCash' : 'Cash',
+        o.gcash_reference || '',
+        o.status || '',
+      ]),
+    ]
+
+    const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `orders-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success(`Exported ${filtered.length} orders`)
+  }
+
   const handleSaveNote = async (orderId, noteText) => {
     await api.orders.update(orderId, { incidentNote: noteText || null })
     toast.success('Incident note updated')
@@ -397,7 +426,17 @@ export default function Orders() {
       <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
         <div className="px-5 py-3 border-b bg-muted/40 flex justify-between items-center">
           <span className="text-sm font-medium text-muted-foreground">{filtered.length} orders</span>
-          <span className="text-sm font-semibold">Total: ₱{totalRevenue.toLocaleString()}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold">Total: ₱{totalRevenue.toLocaleString()}</span>
+            <button
+              onClick={exportCSV}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+              title="Export filtered orders as CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export CSV
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

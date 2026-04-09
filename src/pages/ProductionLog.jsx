@@ -68,24 +68,56 @@ function ItemCard({ item, onOpenPack }) {
 // ─── Confirm Modal ───────────────────────────────────────────────────
 function ConfirmModal({ item, onCancel, onConfirm, loading }) {
   const [note, setNote] = useState('')
+  const [qty, setQty] = useState(1)
   if (!item) return null
 
-  const nextStock = Math.max(0, (item.current_stock ?? 1) - 1)
+  const safeQty = Math.max(1, Math.min(qty || 1, item.current_stock ?? 1))
+  const nextStock = Math.max(0, (item.current_stock ?? 0) - safeQty)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
         {/* Header */}
         <div className="bg-[#2c1810] px-5 py-4">
-          <p className="text-white font-bold text-base">Open 1 pack of {item.name}?</p>
+          <p className="text-white font-bold text-base">Open packs of {item.name}</p>
         </div>
 
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
+          {/* Quantity selector */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">How many packs?</label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                className="w-9 h-9 rounded-full border border-border flex items-center justify-center text-lg font-bold hover:bg-gray-50 disabled:opacity-30"
+                disabled={qty <= 1}
+              >−</button>
+              <input
+                type="number"
+                min={1}
+                max={item.current_stock ?? 1}
+                value={qty}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10)
+                  if (!isNaN(v) && v >= 1) setQty(Math.min(v, item.current_stock ?? 1))
+                }}
+                className="w-16 text-center text-lg font-bold border border-input rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <button
+                type="button"
+                onClick={() => setQty((q) => Math.min(q + 1, item.current_stock ?? 1))}
+                className="w-9 h-9 rounded-full border border-border flex items-center justify-center text-lg font-bold hover:bg-gray-50 disabled:opacity-30"
+                disabled={qty >= (item.current_stock ?? 1)}
+              >+</button>
+            </div>
+          </div>
+
           <p className="text-sm text-gray-700">
-            This will deduct 1 pack from stock&nbsp;
+            Stock after:&nbsp;
             <span className="font-semibold">
-              ({item.current_stock} → {nextStock} remaining)
+              {item.current_stock} → {nextStock} remaining
             </span>
           </p>
 
@@ -113,11 +145,11 @@ function ConfirmModal({ item, onCancel, onConfirm, loading }) {
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(note.trim())}
+            onClick={() => onConfirm(note.trim(), safeQty)}
             disabled={loading}
             className="flex-1 bg-[#B01010] hover:bg-[#8c0d0d] text-white rounded-lg py-2.5 text-sm font-bold transition-colors disabled:opacity-60"
           >
-            {loading ? 'Logging…' : 'Confirm'}
+            {loading ? 'Logging…' : `Open ${safeQty} Pack${safeQty > 1 ? 's' : ''}`}
           </button>
         </div>
       </div>
@@ -135,15 +167,22 @@ export default function ProductionLog() {
   const [categories, setCategories] = useState([])
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState(null)   // item being confirmed
+  const [selected, setSelected] = useState(null)
   const [confirming, setConfirming] = useState(false)
+  const [todayConsumed, setTodayConsumed] = useState({})
 
   const loadItems = useCallback(() => {
-    Promise.all([api.ingredients.list(), api.ingredientCategories.list()]).then(([ingredients, categoryRows]) => {
-      setItems(ingredients)
-      setCategories(categoryRows)
-      setLoading(false)
-    })
+    Promise.all([api.ingredients.list(), api.ingredientCategories.list(), api.stockLogs.todayConsumed()])
+      .then(([ingredients, categoryRows, consumed]) => {
+        setItems(ingredients)
+        setCategories(categoryRows)
+        setTodayConsumed(consumed)
+        setLoading(false)
+      })
+      .catch(() => {
+        setLoading(false)
+        toast.error('Failed to load ingredients')
+      })
   }, [])
 
   useEffect(() => { loadItems() }, [loadItems])
@@ -151,25 +190,22 @@ export default function ProductionLog() {
   const handleOpenPack = (item) => setSelected(item)
   const handleCancel   = () => setSelected(null)
 
-  const handleConfirm = async (note) => {
+  const handleConfirm = async (note, qty = 1) => {
     if (!selected) return
     setConfirming(true)
     try {
       const { item: updated } = await api.ingredients.consume(selected.id, {
         loggedBy: activeName,
         note,
+        qty,
       })
 
-      // Refresh local state immediately
-      setItems((prev) =>
-        prev.map((it) => (it.id === updated.id ? updated : it))
-      )
+      setItems((prev) => prev.map((it) => (it.id === updated.id ? updated : it)))
       setSelected(null)
+      api.stockLogs.todayConsumed().then(setTodayConsumed)
 
-      // Success toast
-      toast.success(`✅ ${updated.name} — 1 pack opened`)
+      toast.success(`✅ ${updated.name} — ${qty} pack${qty > 1 ? 's' : ''} opened`)
 
-      // Low stock warning toast
       const status = getStatus(updated)
       if (status === 'low' || status === 'critical') {
         toast.warning(
@@ -250,6 +286,20 @@ export default function ProductionLog() {
           <p className="text-xs text-muted-foreground">{today}</p>
         </div>
       </div>
+
+      {/* ── Today's Summary ── */}
+      {Object.keys(todayConsumed).length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <p className="text-xs font-semibold text-amber-800 mb-2">Opened today</p>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(todayConsumed).map(([name, count]) => (
+              <span key={name} className="bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 rounded-full">
+                {name} × {count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Legend ── */}
       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">

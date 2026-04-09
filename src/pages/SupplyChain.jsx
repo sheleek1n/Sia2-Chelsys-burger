@@ -681,15 +681,20 @@ export default function SupplyChain() {
 
   const loadData = async () => {
     setLoading(true)
-    const [ings, p, d] = await Promise.all([
-      api.ingredients.list(),
-      api.purchaseOrders.list(),
-      api.deliveries.list(),
-    ])
-    setIngredients(ings)
-    setPos(p)
-    setDeliveries(d)
-    setLoading(false)
+    try {
+      const [ings, p, d] = await Promise.all([
+        api.ingredients.list(),
+        api.purchaseOrders.list(),
+        api.deliveries.list(),
+      ])
+      setIngredients(ings)
+      setPos(p)
+      setDeliveries(d)
+    } catch {
+      toast.error('Failed to load supply chain data')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { loadData() }, [])

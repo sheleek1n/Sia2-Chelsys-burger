@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# AI instruction files (keep local only)
+copilot-instructions.md
+UNIFIED_LOGIN_IMPLEMENTATION.md
+feature-*.md
