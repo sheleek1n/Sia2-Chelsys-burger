@@ -13,6 +13,7 @@ import PageHeader from '@/components/shared/PageHeader'
 import IngredientForm from '@/components/inventory/IngredientForm'
 import { useAuth } from '@/lib/AuthContext'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
+import MenuItemImage from '@/components/shared/MenuItemImage'
 
 const CATEGORIES = ['burger', 'chicken', 'sides', 'drinks', 'combo', 'dessert', 'snacks', 'other']
 const CATEGORY_COLORS = {
@@ -123,8 +124,9 @@ export default function Products() {
   const [menuItems, setMenuItems] = useState([])
   const [menuFormOpen, setMenuFormOpen] = useState(false)
   const [menuEditing, setMenuEditing] = useState(null)
-  const [menuForm, setMenuForm] = useState({ name: '', category: 'burger', price: 0, is_available: true, emoji: null })
+  const [menuForm, setMenuForm] = useState({ name: '', category: 'burger', price: 0, is_available: true, emoji: null, image: null })
   const [menuLoading, setMenuLoading] = useState(true)
+  const [salesCounts, setSalesCounts] = useState({})
 
   // Inventory State
   const [ingredients, setIngredients] = useState([])
@@ -182,6 +184,7 @@ export default function Products() {
 
   useEffect(() => {
     loadMenu()
+    loadSalesCounts()
     loadIngredients()
     loadIngredientCategories()
   }, [])
@@ -263,7 +266,7 @@ export default function Products() {
   // Menu Handlers
   const openMenuForm = (item = null) => {
     setMenuEditing(item)
-    setMenuForm(item ? { ...item, emoji: item.emoji ?? null } : { name: '', category: 'burger', price: 0, is_available: true, emoji: null })
+    setMenuForm(item ? { ...item, emoji: item.emoji ?? null, image: item.image ?? null } : { name: '', category: 'burger', price: 0, is_available: true, emoji: null, image: null })
     setMenuFormOpen(true)
   }
 
@@ -404,15 +407,15 @@ export default function Products() {
       const issues = []
       const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
 
-      if ((item.current_stock || 0) <= 1) {
+      if ((item.current_stock || 0) === 0) {
         issues.push({
           key: `${item.id}:critical_stock`,
           ingredientId: item.id,
           severity: 'critical',
           priority: 1,
           icon: '🔴',
-          label: 'Critical Stock',
-          secondary: `Stock: ${item.current_stock || 0} remaining`,
+          label: 'Out of Stock',
+          secondary: `Stock: 0 remaining`,
           action: 'adjust',
           item,
         })
@@ -689,6 +692,9 @@ export default function Products() {
                   <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
                     {catItems.map((item) => (
                       <div key={item.id} className={`bg-card border rounded-xl p-4 shadow-sm ${!item.is_available ? 'opacity-60' : ''}`}>
+                        {item.image && (
+                          <img src={item.image} alt={item.name} className="w-full h-24 object-cover rounded-lg mb-3" onError={(e) => { e.target.style.display = 'none' }} />
+                        )}
                         <div className="flex justify-between items-start">
                           <p className="font-semibold">{item.name}</p>
                           <div className="flex gap-1">
@@ -697,9 +703,16 @@ export default function Products() {
                           </div>
                         </div>
                         <p className="text-primary font-bold text-lg mt-1">₱{(item.price || 0).toFixed(2)}</p>
-                        <button type="button" onClick={() => toggleAvailability(item)} className={`mt-2 flex items-center gap-1 text-xs ${item.is_available ? 'text-green-600' : 'text-muted-foreground'}`}>
-                          {item.is_available ? <><ToggleRight className="w-4 h-4" /> Available</> : <><ToggleLeft className="w-4 h-4" /> Unavailable</>}
-                        </button>
+                        <div className="flex items-center justify-between mt-2">
+                          <button type="button" onClick={() => toggleAvailability(item)} className={`flex items-center gap-1 text-xs ${item.is_available ? 'text-green-600' : 'text-muted-foreground'}`}>
+                            {item.is_available ? <><ToggleRight className="w-4 h-4" /> Available</> : <><ToggleLeft className="w-4 h-4" /> Unavailable</>}
+                          </button>
+                          {(salesCounts[item.id] || 0) > 0 && (
+                            <span className="text-xs text-muted-foreground font-medium">
+                              {salesCounts[item.id]} sold
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -914,6 +927,17 @@ export default function Products() {
                   onChange={(e) => setLogDateTo(e.target.value)}
                   className="h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
+              </div>
+              {/* Today quick filter */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground invisible">Quick</label>
+                <button
+                  type="button"
+                  onClick={() => { setLogDateFrom(todayStr()); setLogDateTo(todayStr()) }}
+                  className="h-9 px-3 rounded-md border border-input bg-background text-sm font-medium hover:bg-muted transition-colors"
+                >
+                  Today
+                </button>
               </div>
               {/* Action Filter */}
               <div className="flex flex-col gap-1">
@@ -1151,6 +1175,35 @@ export default function Products() {
                   </button>
                 ))}
               </div>
+            </div>
+            <div>
+              <Label>Image URL (optional)</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  type="url"
+                  value={menuForm.image || ''}
+                  onChange={(e) => setMenuForm((f) => ({ ...f, image: e.target.value || null }))}
+                  placeholder="https://example.com/image.jpg"
+                  className="flex-1"
+                />
+                {menuForm.image && (
+                  <Button type="button" variant="outline" className="px-3" onClick={() => setMenuForm((f) => ({ ...f, image: null }))}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+              {menuForm.image && (
+                <div className="mt-2 flex items-center gap-2">
+                  <img
+                    src={menuForm.image}
+                    alt="Preview"
+                    className="w-12 h-12 object-cover rounded-lg border"
+                    onError={(e) => { e.target.style.opacity = '0.3' }}
+                  />
+                  <span className="text-xs text-muted-foreground">Preview</span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">Image will replace the emoji icon on the POS screen.</p>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setMenuFormOpen(false)}>Cancel</Button>

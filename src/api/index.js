@@ -69,7 +69,12 @@ function load() {
 function save(data) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-  } catch (_) {}
+  } catch (err) {
+    console.error('[Chelsys] Failed to save data to localStorage:', err)
+    if (err.name === 'QuotaExceededError' || err.code === 22) {
+      alert('Storage is full! Your latest changes may not be saved. Please export or clear old data.')
+    }
+  }
 }
 
 let db = load()
@@ -507,21 +512,22 @@ export const api = {
       return Promise.resolve()
     },
 
-    // Cashier: atomically deducts 1 pack and writes a stock log entry.
-    consume(itemId, { loggedBy, note }) {
+    // Cashier: atomically deducts packs and writes a stock log entry.
+    consume(itemId, { loggedBy, note, qty = 1 }) {
       db.ingredients = db.ingredients || []
       const i = db.ingredients.findIndex((x) => x.id === itemId)
       if (i < 0) return Promise.reject(new Error('Ingredient not found'))
       const item = db.ingredients[i]
       const oldStock = item.current_stock || 0
-      const newStock = Math.max(0, oldStock - 1)
+      const deduct = Math.max(1, Math.floor(qty))
+      const newStock = Math.max(0, oldStock - deduct)
       db.ingredients[i] = { ...item, current_stock: newStock }
       const logEntry = {
         id: uid(),
         itemId,
         itemName: item.name,
         action: 'consumed',
-        quantity: -1,
+        quantity: -deduct,
         note: note || null,
         loggedBy,
         createdAt: new Date().toISOString(),
@@ -538,7 +544,7 @@ export const api = {
         performedBy: loggedBy,
         previousValue: `${oldStock} ${item.unit}`,
         newValue: `${newStock} ${item.unit}`,
-        details: `${loggedBy} opened 1 pack of ${item.name}`,
+        details: `${loggedBy} opened ${deduct} pack${deduct > 1 ? 's' : ''} of ${item.name}`,
         severity: 'info',
       })
 
@@ -569,7 +575,7 @@ export const api = {
       let newStock = oldStock
       if (type === 'add')    newStock = newStock + qty
       else if (type === 'remove') newStock = Math.max(0, newStock - qty)
-      else if (type === 'set')    newStock = qty
+      else if (type === 'set')    newStock = Math.max(0, qty)
       db.ingredients[i] = { ...item, current_stock: newStock }
       const logEntry = {
         id: uid(),
@@ -1155,6 +1161,18 @@ export const api = {
       const list = [...(db.stockLogs || [])]
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       return Promise.resolve(list.slice(0, limit))
+    },
+    todayConsumed() {
+      const today = new Date().toISOString().split('T')[0]
+      const list = (db.stockLogs || []).filter(
+        (l) => l.action === 'consumed' && l.createdAt && l.createdAt.startsWith(today)
+      )
+      // Group by itemName and sum quantities (stored as negative, so negate)
+      const grouped = {}
+      list.forEach((l) => {
+        grouped[l.itemName] = (grouped[l.itemName] || 0) + Math.abs(l.quantity || 1)
+      })
+      return Promise.resolve(grouped)
     },
     create(data) {
       const row = { id: uid(), ...data }
