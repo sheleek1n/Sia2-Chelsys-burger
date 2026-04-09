@@ -15,8 +15,8 @@ A point-of-sale and back-office management system built for a single-branch fast
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/sheleek1n/New-Chelsys-burger.git
-cd New-Chelsys-burger
+git clone https://github.com/sheleek1n/Sia2-Chelsys-burger.git
+cd Sia2-Chelsys-burger
 
 # 2. Install dependencies
 npm install
