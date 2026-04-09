@@ -153,23 +153,18 @@ export default function Products() {
   const [logSearch, setLogSearch] = useState('')
   const [logPage, setLogPage] = useState(1)
 
-  const loadMenu = () => api.menuItems.list()
-    .then((i) => { setMenuItems(i); setMenuLoading(false) })
-    .catch(() => {
-      setMenuLoading(false)
-      toast.error('Failed to load data')
+  const loadMenu = () => api.menuItems.list().then((i) => { setMenuItems(i); setMenuLoading(false) }).catch(() => { setMenuLoading(false); toast.error('Failed to load menu items') })
+  const loadSalesCounts = () => api.orders.list().then((orders) => {
+    const counts = {}
+    orders.filter((o) => o.status === 'completed').forEach((o) => {
+      ;(o.items || []).forEach((item) => {
+        counts[item.menu_item_id] = (counts[item.menu_item_id] || 0) + (item.quantity || 1)
+      })
     })
-  const loadIngredients = () => api.ingredients.list()
-    .then((i) => { setIngredients(i); setIngredientLoading(false) })
-    .catch(() => {
-      setIngredientLoading(false)
-      toast.error('Failed to load data')
-    })
-  const loadIngredientCategories = () => api.ingredientCategories.list()
-    .then((data) => setIngredientCategories(data))
-    .catch(() => {
-      toast.error('Failed to load data')
-    })
+    setSalesCounts(counts)
+  }).catch(() => {})
+  const loadIngredients = () => api.ingredients.list().then((i) => { setIngredients(i); setIngredientLoading(false) }).catch(() => { setIngredientLoading(false); toast.error('Failed to load ingredients') })
+  const loadIngredientCategories = () => api.ingredientCategories.list().then((data) => setIngredientCategories(data))
 
   const loadLogs = useCallback(() => {
     setLogLoading(true)
@@ -778,7 +773,7 @@ export default function Products() {
                   const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
                   const isExpired = expiryStatus?.severity === 'critical'
                   const isExpiringSoon = expiryStatus?.severity === 'warning'
-                  const isCriticalStock = (item.current_stock || 0) <= 0
+                  const isCriticalStock = (item.current_stock || 0) === 0
                   const isLow = item.current_stock <= item.warning_level
                   return (
                     <tr
@@ -844,7 +839,7 @@ export default function Products() {
                       const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
                       const isExpired = expiryStatus?.severity === 'critical'
                       const isExpiringSoon = expiryStatus?.severity === 'warning'
-                      const isCriticalStock = (item.current_stock || 0) <= 0
+                      const isCriticalStock = (item.current_stock || 0) === 0
                       const isLow = item.current_stock <= item.warning_level
                       return (
                         <tr

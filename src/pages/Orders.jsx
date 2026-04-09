@@ -313,6 +313,12 @@ export default function Orders() {
           className="w-36"
           title="To date"
         />
+        <button
+          onClick={() => { const t = new Date().toISOString().split('T')[0]; setDateFrom(t); setDateTo(t) }}
+          className="px-3 py-2 text-sm font-medium border border-input rounded-md bg-background hover:bg-muted transition-colors whitespace-nowrap"
+        >
+          Today
+        </button>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Status" />
