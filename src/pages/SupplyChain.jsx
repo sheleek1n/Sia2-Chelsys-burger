@@ -690,10 +690,10 @@ export default function SupplyChain() {
       setIngredients(ings)
       setPos(p)
       setDeliveries(d)
-    } catch {
-      toast.error('Failed to load supply chain data')
-    } finally {
       setLoading(false)
+    } catch (_err) {
+      setLoading(false)
+      toast.error('Failed to load data')
     }
   }
 

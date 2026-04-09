@@ -3,6 +3,7 @@ import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
 import OrderForm from '@/components/orders/OrderForm'
+import ReceiptModal from '@/components/orders/ReceiptModal'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import { CheckCircle2, RefreshCcw, X, Printer } from 'lucide-react'
@@ -103,6 +104,7 @@ export default function CashierPOS() {
   const activeName = user ? user.full_name : displayName
   const [menuItems, setMenuItems] = useState([])
   const [recentOrders, setRecentOrders] = useState([])
+  const [receiptOrder, setReceiptOrder] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -114,7 +116,7 @@ export default function CashierPOS() {
     const today = new Date().toISOString().split('T')[0]
     Promise.all([
       api.menuItems.list(),
-      api.orders.list() // Fetch all orders, filter client-side for today
+      api.orders.list()
     ]).then(([m, o]) => {
       setMenuItems(m)
 
@@ -125,8 +127,8 @@ export default function CashierPOS() {
           order.status === 'completed'
       )
       setRecentOrders(myRecentOrders)
-    }).catch((err) => {
-      setError(err.message || 'Failed to load data')
+    }).catch(() => {
+      toast.error('Failed to load data')
     }).finally(() => {
       setLoading(false)
     })
@@ -143,11 +145,12 @@ export default function CashierPOS() {
         ...orderData,
         cashier_name: activeName || 'Unknown',
       })
+      setReceiptOrder(createdOrder)
       toast.success('Order placed successfully!')
       setLastOrder(createdOrder || orderData)
       loadData()
-    } catch (err) {
-      toast.error(err.message || 'Failed to place order')
+    } catch (_err) {
+      toast.error('Failed to place order')
     } finally {
       setSubmitting(false)
     }
@@ -198,7 +201,7 @@ export default function CashierPOS() {
         <OrderForm menuItems={menuItems} onSubmit={handleSubmit} loading={submitting || loading} />
       </div>
 
-      <ReceiptModal order={lastOrder} onClose={() => setLastOrder(null)} />
+      <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
     </div>
   )
 }

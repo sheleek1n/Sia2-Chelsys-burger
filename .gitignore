@@ -23,7 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# AI instruction files (keep local only)
+# AI instruction files
 copilot-instructions.md
 UNIFIED_LOGIN_IMPLEMENTATION.md
 feature-*.md
+.claude/worktrees/

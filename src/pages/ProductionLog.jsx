@@ -172,16 +172,15 @@ export default function ProductionLog() {
   const [todayConsumed, setTodayConsumed] = useState({})
 
   const loadItems = useCallback(() => {
-    Promise.all([api.ingredients.list(), api.ingredientCategories.list(), api.stockLogs.todayConsumed()])
-      .then(([ingredients, categoryRows, consumed]) => {
+    Promise.all([api.ingredients.list(), api.ingredientCategories.list()])
+      .then(([ingredients, categoryRows]) => {
         setItems(ingredients)
         setCategories(categoryRows)
-        setTodayConsumed(consumed)
         setLoading(false)
       })
       .catch(() => {
         setLoading(false)
-        toast.error('Failed to load ingredients')
+        toast.error('Failed to load data')
       })
   }, [])
 

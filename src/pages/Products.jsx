@@ -153,18 +153,23 @@ export default function Products() {
   const [logSearch, setLogSearch] = useState('')
   const [logPage, setLogPage] = useState(1)
 
-  const loadMenu = () => api.menuItems.list().then((i) => { setMenuItems(i); setMenuLoading(false) })
-  const loadSalesCounts = () => api.orders.list().then((orders) => {
-    const counts = {}
-    orders.filter((o) => o.status === 'completed').forEach((o) => {
-      ;(o.items || []).forEach((item) => {
-        counts[item.menu_item_id] = (counts[item.menu_item_id] || 0) + (item.quantity || 1)
-      })
+  const loadMenu = () => api.menuItems.list()
+    .then((i) => { setMenuItems(i); setMenuLoading(false) })
+    .catch(() => {
+      setMenuLoading(false)
+      toast.error('Failed to load data')
     })
-    setSalesCounts(counts)
-  })
-  const loadIngredients = () => api.ingredients.list().then((i) => { setIngredients(i); setIngredientLoading(false) })
-  const loadIngredientCategories = () => api.ingredientCategories.list().then((data) => setIngredientCategories(data))
+  const loadIngredients = () => api.ingredients.list()
+    .then((i) => { setIngredients(i); setIngredientLoading(false) })
+    .catch(() => {
+      setIngredientLoading(false)
+      toast.error('Failed to load data')
+    })
+  const loadIngredientCategories = () => api.ingredientCategories.list()
+    .then((data) => setIngredientCategories(data))
+    .catch(() => {
+      toast.error('Failed to load data')
+    })
 
   const loadLogs = useCallback(() => {
     setLogLoading(true)

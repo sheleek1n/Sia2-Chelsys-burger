@@ -9,11 +9,13 @@ import TopItems from '@/components/dashboard/TopItems'
 import PageHeader from '@/components/shared/PageHeader'
 import { useAuth } from '@/lib/AuthContext'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toast } from 'sonner'
 
 export default function Dashboard() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState([])
   const [ingredients, setIngredients] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
@@ -28,6 +30,11 @@ export default function Dashboard() {
       .then(([o, i]) => {
         setOrders(o)
         setIngredients(i)
+        setLoading(false)
+      })
+      .catch(() => {
+        setLoading(false)
+        toast.error('Failed to load data')
       })
       .catch((err) => {
         setError(err.message || 'Failed to load dashboard data')
@@ -59,9 +66,9 @@ export default function Dashboard() {
       hourEnd.setHours(hour + 1, 0, 0, 0)
       const rev = todayOrders
         .filter((o) => {
-          // Only include orders with valid created_at timestamps
-          if (!o.created_at) return false
-          const orderTime = new Date(o.created_at)
+          const createdAt = o.createdAt || o.created_at
+          if (!createdAt || Number.isNaN(new Date(createdAt).getTime())) return false
+          const orderTime = new Date(createdAt)
           return orderTime >= hourStart && orderTime < hourEnd
         })
         .reduce((s, o) => s + (o.total_amount || 0), 0)
@@ -197,6 +204,11 @@ export default function Dashboard() {
 
   return (
     <div>
+      {loading && (
+        <div className="mb-4 rounded-xl border bg-card px-4 py-3 text-sm text-muted-foreground">
+          Loading...
+        </div>
+      )}
       <PageHeader title="Sales Dashboard" subtitle={`Today, ${format(new Date(), 'MMMM d, yyyy')}`} />
       <div className="mb-4 flex items-center justify-between rounded-xl border bg-card px-4 py-3">
         <div className="text-sm text-muted-foreground">Report Filter</div>
