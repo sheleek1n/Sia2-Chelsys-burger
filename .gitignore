@@ -23,6 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Electron build output
+dist-electron/
+release/
+
 # AI instruction files
 copilot-instructions.md
 UNIFIED_LOGIN_IMPLEMENTATION.md
