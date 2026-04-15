@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { toast } from 'sonner'
-import { UserCog, Plus, Pencil, Trash2, Eye, EyeOff, X } from 'lucide-react'
+import { UserCog, Plus, Pencil, Trash2, Eye, EyeOff, X, Download, Upload, AlertTriangle } from 'lucide-react'
+import { format } from 'date-fns'
 
 export default function Settings() {
   const { user: currentUser } = useAuth()
@@ -11,12 +12,20 @@ export default function Settings() {
   const [showModal, setShowModal] = useState(false)
   const [editingUser, setEditingUser] = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [storageInfo, setStorageInfo] = useState(null)
+
+  const loadStorageInfo = useCallback(async () => {
+    try {
+      const info = await api.backup.getStorageInfo()
+      setStorageInfo(info)
+    } catch { /* ignore */ }
+  }, [])
 
   const loadUsers = () => {
     api.users.list().then(setUsers).catch(() => toast.error('Failed to load users')).finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadUsers() }, [])
+  useEffect(() => { loadUsers(); loadStorageInfo() }, [loadStorageInfo])
 
   const openAdd = () => {
     setEditingUser(null)
@@ -133,6 +142,87 @@ export default function Settings() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* ── Data Backup & Restore ───────────────────────────────── */}
+      <div className="mt-10">
+        <h2 className="text-lg font-bold text-gray-900 mb-1">Data Management</h2>
+        <p className="text-sm text-gray-500 mb-4">Backup your data or restore from a previous backup file</p>
+        <div className="bg-white rounded-xl shadow-sm border p-5">
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Export */}
+            <div className="flex-1 border rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Download className="w-4 h-4 text-green-600" />
+                <h3 className="font-semibold text-sm text-gray-900">Export Backup</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Download all data as a JSON file. Keep this safe — it's your full database.</p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const data = await api.backup.exportAll()
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = `chelsys-backup-${format(new Date(), 'yyyy-MM-dd-HHmm')}.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                    toast.success('Backup downloaded')
+                  } catch { toast.error('Failed to export') }
+                }}
+                className="w-full px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white rounded-lg"
+              >
+                Download Backup
+              </button>
+            </div>
+
+            {/* Import */}
+            <div className="flex-1 border rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Upload className="w-4 h-4 text-blue-600" />
+                <h3 className="font-semibold text-sm text-gray-900">Restore Backup</h3>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Upload a backup file to restore. This will <strong>replace</strong> all current data.</p>
+              <label className="block">
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    e.target.value = ''
+                    if (!window.confirm(`Restore from "${file.name}"?\n\nThis will REPLACE all current data. Make sure you have a backup first.`)) return
+                    try {
+                      const text = await file.text()
+                      const jsonData = JSON.parse(text)
+                      await api.backup.importAll(jsonData)
+                      toast.success('Data restored — reloading...')
+                      setTimeout(() => window.location.reload(), 1000)
+                    } catch (err) {
+                      toast.error(err.message || 'Failed to restore backup')
+                    }
+                  }}
+                />
+                <span className="block w-full px-4 py-2 text-sm font-medium text-center bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer">
+                  Upload Backup File
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-amber-800">
+              {storageInfo?.type === 'electron'
+                ? <><strong>Storage:</strong> Data is saved to a local file on your computer. Safe from browser cache clears.<br /><span className="text-amber-600 font-mono text-[10px]">{storageInfo.location}</span></>
+                : <><strong>Tip:</strong> Download a backup regularly, especially before clearing browser data. All your data lives in this browser — if the cache is cleared, everything is lost.</>
+              }
+            </p>
+          </div>
+        </div>
       </div>
 
       {showModal && (

@@ -1,4 +1,6 @@
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, ipcMain } = require('electron')
+const path = require('path')
+const database = require('./database.cjs')
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -9,15 +11,36 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
     title: "Chelsy's Burger POS",
     autoHideMenuBar: true,
   })
 
-  // Load from Vite dev server
-  win.loadURL('http://localhost:5173')
+  // In dev, load from Vite dev server; in production, load built files
+  const isDev = !app.isPackaged
+  if (isDev) {
+    win.loadURL('http://localhost:5173')
+  } else {
+    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+  }
 }
 
+// ── IPC Handlers ──────────────────────────────────────────────
+ipcMain.handle('db:load', () => {
+  return database.load()
+})
+
+ipcMain.handle('db:save', (_event, data) => {
+  database.save(data)
+  return true
+})
+
+ipcMain.handle('db:getPath', () => {
+  return database.getDbPath()
+})
+
+// ── App Lifecycle ─────────────────────────────────────────────
 app.whenReady().then(() => {
   createWindow()
 

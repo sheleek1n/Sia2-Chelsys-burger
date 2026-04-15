@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '@/api'
-import { DollarSign, ShoppingCart, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { DollarSign, ShoppingCart, TrendingUp, AlertTriangle, CheckCircle2, FileText, X, Printer } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { format, subDays } from 'date-fns'
 import StatCard from '@/components/dashboard/StatCard'
@@ -22,6 +22,7 @@ export default function Dashboard() {
   const [batches, setBatches] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
   const [paymentFilter, setPaymentFilter] = useState('all')
+  const [showEOD, setShowEOD] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -185,6 +186,15 @@ export default function Dashboard() {
       <div className="flex items-start justify-between mb-6">
         <PageHeader title="Today's Sales" subtitle={`Today, ${format(new Date(), 'MMMM d, yyyy')}`} />
         <div className="flex items-center gap-2 flex-shrink-0">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setShowEOD(true)}
+              className="flex items-center gap-2 px-3 py-2 h-9 text-sm font-medium bg-slate-800 hover:bg-slate-900 text-white rounded-lg"
+            >
+              <FileText className="w-4 h-4" /> End of Day
+            </button>
+          )}
           <span className="text-sm text-muted-foreground">Filter:</span>
           <Select value={paymentFilter} onValueChange={setPaymentFilter}>
             <SelectTrigger className="w-36 h-9">
@@ -262,6 +272,185 @@ export default function Dashboard() {
       )}
 
       <TopItems orders={todayOrders} />
+
+      {/* End-of-Day Summary Modal */}
+      {showEOD && (
+        <EODModal
+          orders={completedOrders}
+          todayOrders={todayCompletedOrders}
+          today={today}
+          inventoryAlerts={inventoryAlerts}
+          onClose={() => setShowEOD(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function EODModal({ orders, todayOrders, today, inventoryAlerts, onClose }) {
+  const totalRevenue = todayOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
+  const orderCount = todayOrders.length
+  const avgOrder = orderCount > 0 ? Math.round(totalRevenue / orderCount) : 0
+
+  const cashOrders = todayOrders.filter((o) => (o.payment_method || 'cash') === 'cash')
+  const gcashOrders = todayOrders.filter((o) => o.payment_method === 'gcash')
+  const cashTotal = cashOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
+  const gcashTotal = gcashOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
+
+  // Top items
+  const itemCounts = {}
+  todayOrders.forEach((o) => {
+    ;(o.items || []).forEach((item) => {
+      const name = item.menu_item_name || 'Unknown'
+      if (!itemCounts[name]) itemCounts[name] = { name, qty: 0, revenue: 0 }
+      itemCounts[name].qty += item.quantity || 1
+      itemCounts[name].revenue += item.subtotal || 0
+    })
+  })
+  const topItems = Object.values(itemCounts).sort((a, b) => b.qty - a.qty).slice(0, 10)
+
+  // Cashier breakdown
+  const cashierBreakdown = {}
+  todayOrders.forEach((o) => {
+    const name = o.cashier_name || 'Unknown'
+    if (!cashierBreakdown[name]) cashierBreakdown[name] = { name, orders: 0, revenue: 0 }
+    cashierBreakdown[name].orders++
+    cashierBreakdown[name].revenue += o.total_amount || 0
+  })
+  const cashiers = Object.values(cashierBreakdown).sort((a, b) => b.revenue - a.revenue)
+
+  // Cancelled/voided today
+  const allTodayOrders = orders.filter((o) => o.order_date === today)
+  const cancelledCount = allTodayOrders.filter((o) => o.status === 'voided' || o.status === 'cancelled').length
+  const refundedCount = allTodayOrders.filter((o) => o.status === 'refunded').length
+
+  const handlePrint = () => {
+    const printEl = document.getElementById('eod-print-content')
+    if (!printEl) return
+    const printWindow = window.open('', '_blank', 'width=400,height=600')
+    printWindow.document.write(`
+      <html><head><title>End of Day — ${format(new Date(), 'MMM d, yyyy')}</title>
+      <style>
+        body { font-family: 'Segoe UI', sans-serif; font-size: 12px; padding: 20px; max-width: 350px; margin: 0 auto; }
+        h1 { font-size: 16px; text-align: center; margin-bottom: 4px; }
+        h2 { font-size: 13px; margin: 14px 0 6px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 12px; }
+        table { width: 100%; border-collapse: collapse; }
+        td, th { padding: 3px 4px; text-align: left; }
+        td:last-child, th:last-child { text-align: right; }
+        .total-row td { border-top: 2px solid #000; font-weight: bold; padding-top: 6px; }
+        .divider { border-top: 1px dashed #ccc; margin: 10px 0; }
+        @media print { button { display: none; } }
+      </style></head><body>
+      ${printEl.innerHTML}
+      <script>window.print(); window.close();<\/script>
+      </body></html>
+    `)
+    printWindow.document.close()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+      <div className="bg-white rounded-xl shadow-xl w-[95vw] max-w-lg mx-4 max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h2 className="font-bold text-lg text-gray-900">End-of-Day Summary</h2>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg" title="Print">
+              <Printer className="w-3.5 h-3.5" /> Print
+            </button>
+            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-5 py-4" id="eod-print-content">
+          <h1 style={{ fontSize: '16px', textAlign: 'center', marginBottom: '4px' }}>Chelsy's Burger</h1>
+          <p className="subtitle" style={{ textAlign: 'center', color: '#666', marginBottom: '12px', fontSize: '12px' }}>
+            End of Day Report — {format(new Date(), 'MMMM d, yyyy')}
+          </p>
+
+          {/* Revenue Summary */}
+          <h2 className="text-sm font-bold text-gray-900 border-b pb-1 mb-2 mt-0">Sales Summary</h2>
+          <table className="w-full text-sm mb-1">
+            <tbody>
+              <tr><td className="py-1 text-gray-600">Total Revenue</td><td className="py-1 text-right font-bold text-lg">₱{totalRevenue.toLocaleString()}</td></tr>
+              <tr><td className="py-1 text-gray-600">Completed Orders</td><td className="py-1 text-right font-semibold">{orderCount}</td></tr>
+              <tr><td className="py-1 text-gray-600">Average Per Order</td><td className="py-1 text-right">₱{avgOrder.toLocaleString()}</td></tr>
+              {cancelledCount > 0 && <tr><td className="py-1 text-red-600">Cancelled</td><td className="py-1 text-right text-red-600">{cancelledCount}</td></tr>}
+              {refundedCount > 0 && <tr><td className="py-1 text-yellow-700">Refunded</td><td className="py-1 text-right text-yellow-700">{refundedCount}</td></tr>}
+            </tbody>
+          </table>
+
+          {/* Payment Breakdown */}
+          <h2 className="text-sm font-bold text-gray-900 border-b pb-1 mb-2 mt-4">Payment Breakdown</h2>
+          <table className="w-full text-sm">
+            <tbody>
+              <tr><td className="py-1 text-gray-600">Cash ({cashOrders.length} orders)</td><td className="py-1 text-right font-semibold text-green-700">₱{cashTotal.toLocaleString()}</td></tr>
+              <tr><td className="py-1 text-gray-600">GCash ({gcashOrders.length} orders)</td><td className="py-1 text-right font-semibold text-blue-700">₱{gcashTotal.toLocaleString()}</td></tr>
+            </tbody>
+            <tfoot>
+              <tr className="total-row"><td className="pt-2 font-bold border-t">Total</td><td className="pt-2 text-right font-bold border-t">₱{totalRevenue.toLocaleString()}</td></tr>
+            </tfoot>
+          </table>
+
+          {/* Top Items */}
+          {topItems.length > 0 && (
+            <>
+              <h2 className="text-sm font-bold text-gray-900 border-b pb-1 mb-2 mt-4">Top Items</h2>
+              <table className="w-full text-sm">
+                <thead><tr className="text-xs text-gray-500"><th className="text-left py-1">Item</th><th className="text-right py-1">Qty</th><th className="text-right py-1">Revenue</th></tr></thead>
+                <tbody>
+                  {topItems.map((item) => (
+                    <tr key={item.name}><td className="py-1 text-gray-700">{item.name}</td><td className="py-1 text-right">{item.qty}</td><td className="py-1 text-right">₱{item.revenue.toLocaleString()}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {/* Cashier Breakdown */}
+          {cashiers.length > 0 && (
+            <>
+              <h2 className="text-sm font-bold text-gray-900 border-b pb-1 mb-2 mt-4">Cashier Performance</h2>
+              <table className="w-full text-sm">
+                <thead><tr className="text-xs text-gray-500"><th className="text-left py-1">Cashier</th><th className="text-right py-1">Orders</th><th className="text-right py-1">Revenue</th></tr></thead>
+                <tbody>
+                  {cashiers.map((c) => (
+                    <tr key={c.name}><td className="py-1 text-gray-700">{c.name}</td><td className="py-1 text-right">{c.orders}</td><td className="py-1 text-right">₱{c.revenue.toLocaleString()}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {/* Stock Alerts */}
+          {inventoryAlerts.totalAlerts > 0 && (
+            <>
+              <h2 className="text-sm font-bold text-gray-900 border-b pb-1 mb-2 mt-4">Stock Alerts</h2>
+              <div className="text-sm space-y-1">
+                {inventoryAlerts.outOfStock.length > 0 && (
+                  <p className="text-red-700">🔴 {inventoryAlerts.outOfStock.length} out of stock: {inventoryAlerts.outOfStock.slice(0, 5).map((i) => i.name).join(', ')}</p>
+                )}
+                {inventoryAlerts.lowStock.length > 0 && (
+                  <p className="text-yellow-700">🟡 {inventoryAlerts.lowStock.length} low stock: {inventoryAlerts.lowStock.slice(0, 5).map((i) => `${i.name} (${i.current_stock})`).join(', ')}</p>
+                )}
+                {inventoryAlerts.expiredBatches.length > 0 && (
+                  <p className="text-red-700">🔴 {inventoryAlerts.expiredBatches.length} expired batches</p>
+                )}
+                {inventoryAlerts.expiringBatches.length > 0 && (
+                  <p className="text-orange-700">🟠 {inventoryAlerts.expiringBatches.length} batches expiring soon</p>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="divider" style={{ borderTop: '1px dashed #ccc', margin: '14px 0' }} />
+          <p style={{ textAlign: 'center', fontSize: '11px', color: '#999' }}>
+            Generated {format(new Date(), 'MMM d, yyyy h:mm a')}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

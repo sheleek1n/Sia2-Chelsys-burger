@@ -1,6 +1,12 @@
 /**
- * Local API – in-memory + localStorage. Swap for Electron IPC + SQLite later.
+ * Local API – in-memory store, persisted to:
+ *   - Electron file (userData/chelsys-burger-data.json) when running in Electron
+ *   - localStorage when running in the browser
+ *
+ * The Electron path survives browser cache clears and is more reliable.
  */
+
+const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron === true
 
 const STORAGE_KEY = 'chelsys_burger_data'
 const CURRENT_USER_KEY = 'chelsys_current_user'
@@ -27,7 +33,13 @@ const SEEDED_CATEGORY_BY_INGREDIENT_NAME = {
   'Fries': 5,
 }
 
+// Electron data loaded asynchronously — see initElectronDb() below
+let _electronDataLoaded = false
+
 function load() {
+  // If Electron data has been loaded already, it's in the db variable — skip localStorage
+  if (isElectron && _electronDataLoaded) return null
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw)
@@ -72,6 +84,16 @@ function localDate(d = new Date()) {
 }
 
 function save(data) {
+  if (isElectron) {
+    // Save to Electron file system via IPC
+    try {
+      window.electronAPI.db.save(data)
+    } catch (err) {
+      console.error('[Chelsys] Failed to save via Electron IPC:', err)
+    }
+    return
+  }
+  // Fallback: save to localStorage
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch (err) {
@@ -288,6 +310,49 @@ function getStoredUser() {
   } catch (_) {
     return null
   }
+}
+
+/**
+ * Initialize database from Electron file system.
+ * Call this once at app startup when running in Electron.
+ * In browser mode, this is a no-op (data already loaded from localStorage).
+ */
+async function initElectronDb() {
+  if (!isElectron) return
+  try {
+    const fileData = await window.electronAPI.db.load()
+    if (fileData && typeof fileData === 'object') {
+      // Merge file data into in-memory db
+      Object.assign(db, fileData)
+      _electronDataLoaded = true
+      console.log('[Chelsys] Loaded data from Electron file storage')
+    } else {
+      // No file yet — save current (seeded) db to file
+      save(db)
+      _electronDataLoaded = true
+      console.log('[Chelsys] Created new Electron database from seed data')
+    }
+
+    // Also migrate localStorage data to file if it exists and file was empty
+    if (!fileData) {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (raw) {
+          const lsData = JSON.parse(raw)
+          Object.assign(db, lsData)
+          save(db)
+          console.log('[Chelsys] Migrated localStorage data to Electron file storage')
+        }
+      } catch { /* ignore */ }
+    }
+  } catch (err) {
+    console.error('[Chelsys] Failed to load from Electron:', err)
+  }
+}
+
+// Auto-init if running in Electron
+if (isElectron) {
+  initElectronDb()
 }
 
 export const api = {
@@ -1471,6 +1536,51 @@ export const api = {
       db.inventoryLogs = []
       save(db)
       return Promise.resolve()
+    },
+  },
+
+  // ── Backup & Restore ──────────────────────────────────────────────────────
+  backup: {
+    exportAll() {
+      const data = JSON.parse(JSON.stringify(db))
+      // Strip passwords from export for safety display but keep for restore
+      const exportData = {
+        _meta: {
+          appName: 'Chelsy\'s Burger POS',
+          exportedAt: new Date().toISOString(),
+          version: '0.1.0',
+        },
+        ...data,
+      }
+      return Promise.resolve(exportData)
+    },
+    importAll(jsonData) {
+      const currentUser = getStoredUser()
+      if (!currentUser || currentUser.role !== 'admin') {
+        return Promise.reject(new Error('Admin access required'))
+      }
+      if (!jsonData || typeof jsonData !== 'object') {
+        return Promise.reject(new Error('Invalid backup file'))
+      }
+      // Validate it has at least some expected keys
+      const expectedKeys = ['users', 'orders', 'ingredients', 'menuItems']
+      const hasValidStructure = expectedKeys.some((key) => Array.isArray(jsonData[key]))
+      if (!hasValidStructure) {
+        return Promise.reject(new Error('Backup file does not contain valid Chelsy\'s Burger data'))
+      }
+      // Remove meta before restoring
+      const { _meta, ...restoreData } = jsonData
+      // Merge into db
+      Object.assign(db, restoreData)
+      save(db)
+      return Promise.resolve({ itemCount: Object.keys(restoreData).length })
+    },
+    async getStorageInfo() {
+      if (isElectron) {
+        const dbPath = await window.electronAPI.db.getPath()
+        return { type: 'electron', location: dbPath }
+      }
+      return { type: 'localStorage', location: 'Browser localStorage' }
     },
   },
 }
