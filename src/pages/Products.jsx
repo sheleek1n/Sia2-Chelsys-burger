@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react'
 import { api } from '@/api'
-import { Plus, Pencil, Trash2, AlertTriangle, ToggleLeft, ToggleRight, Search, ClipboardList, ChevronLeft, ChevronRight, Settings } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertTriangle, ToggleLeft, ToggleRight, Search, ClipboardList, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Settings, Package } from 'lucide-react'
+import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -143,6 +144,9 @@ export default function Products() {
   const [adjustOpen, setAdjustOpen] = useState(false)
   const [adjustingItem, setAdjustingItem] = useState(null)
   const [adjustForm, setAdjustForm] = useState({ type: 'add', qty: 1, reason: '' })
+  const [expandedBatchId, setExpandedBatchId] = useState(null)
+  const [batchData, setBatchData] = useState([])
+  const [showExhausted, setShowExhausted] = useState(false)
 
   // Activity Log State
   const [logs, setLogs] = useState([])
@@ -388,6 +392,103 @@ export default function Products() {
     if (activeTab === 'activity') {
       loadLogs()
     }
+  }
+
+  const toggleBatchView = async (ingredientId) => {
+    if (expandedBatchId === ingredientId) {
+      setExpandedBatchId(null)
+      setBatchData([])
+      setShowExhausted(false)
+      return
+    }
+    const batches = await api.stockBatches.getByIngredient(ingredientId)
+    setBatchData(batches)
+    setExpandedBatchId(ingredientId)
+    setShowExhausted(false)
+  }
+
+  const getBatchExpiryTint = (expiryDate) => {
+    if (!expiryDate) return ''
+    const status = api.ingredients.getExpiryStatus(expiryDate)
+    if (!status) return ''
+    if (status.severity === 'critical') return 'bg-red-50'
+    if (status.severity === 'warning') {
+      if (status.days <= 3) return 'bg-orange-50'
+      return 'bg-yellow-50'
+    }
+    return ''
+  }
+
+  const renderBatchRow = (ingredientId) => {
+    if (expandedBatchId !== ingredientId) return null
+    const visibleBatches = showExhausted ? batchData : batchData.filter((b) => !b.isExhausted)
+    const exhaustedCount = batchData.filter((b) => b.isExhausted).length
+    return (
+      <tr key={`batches-${ingredientId}`}>
+        <td colSpan={9} className="px-0 py-0">
+          <div className="bg-slate-50/50 border-t border-b px-6 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                <Package className="w-3.5 h-3.5" />
+                FIFO Batch Tracking — oldest batch consumed first
+              </div>
+              {exhaustedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowExhausted(!showExhausted)}
+                  className="text-xs text-muted-foreground hover:text-primary"
+                >
+                  {showExhausted ? 'Hide' : 'Show'} {exhaustedCount} exhausted
+                </button>
+              )}
+            </div>
+            {visibleBatches.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">No active batches.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground">
+                    <th className="text-left py-1.5 pr-4 font-medium">Batch</th>
+                    <th className="text-left py-1.5 pr-4 font-medium">Received</th>
+                    <th className="text-left py-1.5 pr-4 font-medium">Expires</th>
+                    <th className="text-right py-1.5 pr-4 font-medium">Remaining</th>
+                    <th className="text-right py-1.5 pr-4 font-medium">Original</th>
+                    <th className="text-left py-1.5 pr-4 font-medium">Supplier</th>
+                    <th className="text-left py-1.5 font-medium">PO</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleBatches.map((batch, idx) => {
+                    const expiryStatus = batch.expiryDate ? api.ingredients.getExpiryStatus(batch.expiryDate) : null
+                    return (
+                      <tr key={batch.id} className={`${batch.isExhausted ? 'opacity-40 line-through' : getBatchExpiryTint(batch.expiryDate)} ${idx === 0 && !batch.isExhausted ? 'font-medium' : ''}`}>
+                        <td className="py-1.5 pr-4">
+                          #{idx + 1}
+                          {idx === 0 && !batch.isExhausted && <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">NEXT</span>}
+                        </td>
+                        <td className="py-1.5 pr-4 text-muted-foreground">{format(new Date(batch.receivedAt), 'MMM d, yyyy')}</td>
+                        <td className="py-1.5 pr-4">
+                          {batch.expiryDate ? (
+                            <span className={expiryStatus?.severity === 'critical' ? 'text-red-600 font-medium' : expiryStatus?.severity === 'warning' ? 'text-orange-600' : 'text-muted-foreground'}>
+                              {format(new Date(batch.expiryDate), 'MMM d, yyyy')}
+                              {expiryStatus?.severity === 'critical' && ' (expired)'}
+                            </span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="py-1.5 pr-4 text-right">{batch.quantity}</td>
+                        <td className="py-1.5 pr-4 text-right text-muted-foreground">{batch.originalQuantity}</td>
+                        <td className="py-1.5 pr-4 text-muted-foreground">{batch.supplier || '—'}</td>
+                        <td className="py-1.5 text-muted-foreground">{batch.poNumber || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </td>
+      </tr>
+    )
   }
 
   const viewIngredientInTable = (ingredientId) => {
@@ -775,52 +876,57 @@ export default function Products() {
                   const isExpiringSoon = expiryStatus?.severity === 'warning'
                   const isCriticalStock = (item.current_stock || 0) === 0
                   const isLow = item.current_stock <= item.warning_level
+                  const isExpanded = expandedBatchId === item.id
                   return (
-                    <tr
-                      key={item.id}
-                      id={`ingredient-row-${item.id}`}
-                      ref={(el) => { ingredientRowRefs.current[item.id] = el }}
-                      className={`border-b last:border-0 hover:bg-muted/10 ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : isCriticalStock ? 'bg-red-50/70' : isLow ? 'bg-yellow-50/70' : ''}`}
-                    >
-                      <td className="px-5 py-3 font-medium">
-                        <div className="flex items-center gap-2">
-                          {isLow && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
-                          {item.name}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
-                      <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
-                      <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
-                      <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
-                      <td className="px-5 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCriticalStock ? 'bg-red-100 text-red-700' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                          {isCriticalStock ? 'Critical' : isLow ? 'Low Stock' : 'OK'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 whitespace-nowrap">
-                        {expiryStatus ? (
-                          <span
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
-                            title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
-                          >
-                            {expiryStatus.label}
+                    <Fragment key={item.id}>
+                      <tr
+                        id={`ingredient-row-${item.id}`}
+                        ref={(el) => { ingredientRowRefs.current[item.id] = el }}
+                        className={`border-b hover:bg-muted/10 cursor-pointer ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : isCriticalStock ? 'bg-red-50/70' : isLow ? 'bg-yellow-50/70' : ''}`}
+                        onClick={() => toggleBatchView(item.id)}
+                      >
+                        <td className="px-5 py-3 font-medium">
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                            {isLow && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                            {item.name}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
+                        <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
+                        <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
+                        <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
+                        <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
+                        <td className="px-5 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCriticalStock ? 'bg-red-100 text-red-700' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                            {isCriticalStock ? 'Critical' : isLow ? 'Low Stock' : 'OK'}
                           </span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-5 py-3 whitespace-nowrap">
+                          {expiryStatus ? (
+                            <span
+                              className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
+                              title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
+                            >
+                              {expiryStatus.label}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {renderBatchRow(item.id)}
+                    </Fragment>
                   )
                 })}
                 {ingredientCategoryFilter === 'all' && groupedIngredientSections.map((section) => (
@@ -841,52 +947,57 @@ export default function Products() {
                       const isExpiringSoon = expiryStatus?.severity === 'warning'
                       const isCriticalStock = (item.current_stock || 0) === 0
                       const isLow = item.current_stock <= item.warning_level
+                      const isExpanded = expandedBatchId === item.id
                       return (
-                        <tr
-                          key={item.id}
-                          id={`ingredient-row-${item.id}`}
-                          ref={(el) => { ingredientRowRefs.current[item.id] = el }}
-                          className={`border-b last:border-0 hover:bg-muted/10 ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : isCriticalStock ? 'bg-red-50/70' : isLow ? 'bg-yellow-50/70' : ''}`}
-                        >
-                          <td className="px-5 py-3 font-medium">
-                            <div className="flex items-center gap-2">
-                              {isLow && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
-                              {item.name}
-                            </div>
-                          </td>
-                          <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
-                          <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
-                          <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
-                          <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
-                          <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
-                          <td className="px-5 py-3">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCriticalStock ? 'bg-red-100 text-red-700' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                              {isCriticalStock ? 'Critical' : isLow ? 'Low Stock' : 'OK'}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3 whitespace-nowrap">
-                            {expiryStatus ? (
-                              <span
-                                className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
-                                title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
-                              >
-                                {expiryStatus.label}
+                        <Fragment key={`item-${item.id}`}>
+                          <tr
+                            id={`ingredient-row-${item.id}`}
+                            ref={(el) => { ingredientRowRefs.current[item.id] = el }}
+                            className={`border-b hover:bg-muted/10 cursor-pointer ${isExpired ? 'bg-red-50' : isExpiringSoon ? 'bg-yellow-50' : isCriticalStock ? 'bg-red-50/70' : isLow ? 'bg-yellow-50/70' : ''}`}
+                            onClick={() => toggleBatchView(item.id)}
+                          >
+                            <td className="px-5 py-3 font-medium">
+                              <div className="flex items-center gap-2">
+                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                                {isLow && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                                {item.name}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
+                            <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
+                            <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
+                            <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
+                            <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
+                            <td className="px-5 py-3">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCriticalStock ? 'bg-red-100 text-red-700' : isLow ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                                {isCriticalStock ? 'Critical' : isLow ? 'Low Stock' : 'OK'}
                               </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3">
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
+                            </td>
+                            <td className="px-5 py-3 whitespace-nowrap">
+                              {expiryStatus ? (
+                                <span
+                                  className={`inline-flex items-center px-2 py-1 rounded-full text-[11px] font-medium border ${getExpiryBadgeClass(expiryStatus)}`}
+                                  title={isExpired ? `Expired on ${formatExpiryDate(item.expiry_date)}` : undefined}
+                                >
+                                  {expiryStatus.label}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex gap-2">
+                                <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {renderBatchRow(item.id)}
+                        </Fragment>
                       )
                     })}
                   </Fragment>

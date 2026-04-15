@@ -19,16 +19,18 @@ export default function Dashboard() {
   const [error, setError] = useState(null)
   const [orders, setOrders] = useState([])
   const [ingredients, setIngredients] = useState([])
+  const [batches, setBatches] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
   const [paymentFilter, setPaymentFilter] = useState('all')
 
   useEffect(() => {
     setLoading(true)
     setError(null)
-    Promise.all([api.orders.list(500), api.ingredients.list()])
-      .then(([o, i]) => {
+    Promise.all([api.orders.list(500), api.ingredients.list(), api.stockBatches.list()])
+      .then(([o, i, b]) => {
         setOrders(o)
         setIngredients(i)
+        setBatches(b)
       })
       .catch((err) => {
         setError(err.message || 'Failed to load dashboard data')
@@ -84,11 +86,18 @@ export default function Dashboard() {
   const inventoryAlerts = useMemo(() => {
     const outOfStock = ingredients.filter((i) => (i.current_stock || 0) === 0)
     const lowStock = ingredients.filter((i) => (i.current_stock || 0) > 0 && (i.current_stock || 0) <= (i.warning_level || 0))
-    const totalAlerts = new Set([...outOfStock.map((i) => i.id), ...lowStock.map((i) => i.id)]).size
-    return { outOfStock, lowStock, totalAlerts }
-  }, [ingredients])
+    const expiredBatches = batches.filter((b) => !b.isExhausted && b.expiryDate && api.ingredients.getExpiryStatus(b.expiryDate)?.severity === 'critical')
+    const expiringBatches = batches.filter((b) => !b.isExhausted && b.expiryDate && api.ingredients.getExpiryStatus(b.expiryDate)?.severity === 'warning')
+    const totalAlerts = new Set([
+      ...outOfStock.map((i) => i.id),
+      ...lowStock.map((i) => i.id),
+      ...expiredBatches.map((b) => b.ingredientId),
+      ...expiringBatches.map((b) => b.ingredientId),
+    ]).size
+    return { outOfStock, lowStock, expiredBatches, expiringBatches, totalAlerts }
+  }, [ingredients, batches])
 
-  const hasCritical = inventoryAlerts.outOfStock.length > 0
+  const hasCritical = inventoryAlerts.outOfStock.length > 0 || inventoryAlerts.expiredBatches.length > 0
   const hasAnyIssues = inventoryAlerts.totalAlerts > 0
 
   const summarizeItems = (items, formatItem) => {
@@ -105,6 +114,16 @@ export default function Dashboard() {
   const alertGroups = useMemo(() => {
     const groups = []
 
+    if (inventoryAlerts.expiredBatches.length > 0) {
+      groups.push({
+        key: 'expired',
+        icon: '🔴',
+        title: `${inventoryAlerts.expiredBatches.length} expired batch${inventoryAlerts.expiredBatches.length > 1 ? 'es' : ''}`,
+        detail: summarizeItems(inventoryAlerts.expiredBatches, (b) => `${b.ingredientName} (${b.quantity} left)`),
+        tone: 'red',
+      })
+    }
+
     if (inventoryAlerts.outOfStock.length > 0) {
       groups.push({
         key: 'out_of_stock',
@@ -112,6 +131,16 @@ export default function Dashboard() {
         title: `${inventoryAlerts.outOfStock.length} out of stock item${inventoryAlerts.outOfStock.length > 1 ? 's' : ''}`,
         detail: summarizeItems(inventoryAlerts.outOfStock, (i) => i.name),
         tone: 'red',
+      })
+    }
+
+    if (inventoryAlerts.expiringBatches.length > 0) {
+      groups.push({
+        key: 'expiring_soon',
+        icon: '🟠',
+        title: `${inventoryAlerts.expiringBatches.length} batch${inventoryAlerts.expiringBatches.length > 1 ? 'es' : ''} expiring soon`,
+        detail: summarizeItems(inventoryAlerts.expiringBatches, (b) => `${b.ingredientName} (${b.quantity} left)`),
+        tone: 'orange',
       })
     }
 
@@ -125,7 +154,7 @@ export default function Dashboard() {
       })
     }
 
-    return groups
+    return groups.slice(0, 4)
   }, [inventoryAlerts])
 
   if (loading) {

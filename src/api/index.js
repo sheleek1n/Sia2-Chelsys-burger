@@ -61,6 +61,7 @@ function load() {
     ],
     purchaseOrders: [],
     deliveries: [],
+    stockBatches: [],    // FIFO batch tracking per ingredient
     stockLogs: [],
     inventoryLogs: [],   // Activity log — fills as actions happen
   }
@@ -146,6 +147,56 @@ if ((db.deliveries || []).some((delivery) => delivery.isPartialCompletion === un
     parentDeliveryId: delivery.parentDeliveryId ?? null,
   }))
   save(db)
+}
+
+// ── Stock Batches migration: create opening batches for existing stock ──
+if (!db.stockBatches) db.stockBatches = []
+if (db.stockBatches.length === 0 && (db.ingredients || []).some((i) => (i.current_stock || 0) > 0)) {
+  db.ingredients.forEach((item) => {
+    if ((item.current_stock || 0) > 0) {
+      db.stockBatches.push({
+        id: `batch_opening_${item.id}`,
+        ingredientId: item.id,
+        ingredientName: item.name,
+        quantity: item.current_stock,
+        originalQuantity: item.current_stock,
+        receivedAt: new Date().toISOString(),
+        expiryDate: item.expiry_date || null,
+        deliveryId: null,
+        poNumber: null,
+        supplier: item.supplier || 'Opening Stock',
+        isExhausted: false,
+      })
+    }
+  })
+  save(db)
+}
+
+// ── FIFO helpers ──────────────────────────────────────────────────────────
+function deductFIFO(ingredientId, quantityToDeduct) {
+  const batches = (db.stockBatches || [])
+    .filter((b) => b.ingredientId === ingredientId && !b.isExhausted)
+    .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
+
+  let remaining = quantityToDeduct
+  for (const batch of batches) {
+    if (remaining <= 0) break
+    if (batch.quantity >= remaining) {
+      batch.quantity -= remaining
+      if (batch.quantity === 0) batch.isExhausted = true
+      remaining = 0
+    } else {
+      remaining -= batch.quantity
+      batch.quantity = 0
+      batch.isExhausted = true
+    }
+  }
+}
+
+function recalculateStock(ingredientId) {
+  return (db.stockBatches || [])
+    .filter((b) => b.ingredientId === ingredientId && !b.isExhausted)
+    .reduce((sum, b) => sum + b.quantity, 0)
 }
 
 function normalizePaymentMethod(value) {
@@ -528,7 +579,8 @@ export const api = {
       const item = db.ingredients[i]
       const oldStock = item.current_stock || 0
       const deduct = Math.max(1, Math.floor(qty))
-      const newStock = Math.max(0, oldStock - deduct)
+      deductFIFO(itemId, deduct)
+      const newStock = recalculateStock(itemId)
       db.ingredients[i] = { ...item, current_stock: newStock }
       const logEntry = {
         id: uid(),
@@ -581,9 +633,48 @@ export const api = {
       const item = db.ingredients[i]
       const oldStock = item.current_stock || 0
       let newStock = oldStock
-      if (type === 'add')    newStock = newStock + qty
-      else if (type === 'remove') newStock = Math.max(0, newStock - qty)
-      else if (type === 'set')    newStock = Math.max(0, qty)
+      if (type === 'add') {
+        // Add as a new batch (manual adjustment)
+        db.stockBatches = db.stockBatches || []
+        db.stockBatches.push({
+          id: uid(),
+          ingredientId: itemId,
+          ingredientName: item.name,
+          quantity: qty,
+          originalQuantity: qty,
+          receivedAt: new Date().toISOString(),
+          expiryDate: null,
+          deliveryId: null,
+          poNumber: null,
+          supplier: 'Manual Adjustment',
+          isExhausted: false,
+        })
+        newStock = recalculateStock(itemId)
+      } else if (type === 'remove') {
+        deductFIFO(itemId, qty)
+        newStock = recalculateStock(itemId)
+      } else if (type === 'set') {
+        const target = Math.max(0, qty)
+        if (target < oldStock) {
+          deductFIFO(itemId, oldStock - target)
+        } else if (target > oldStock) {
+          db.stockBatches = db.stockBatches || []
+          db.stockBatches.push({
+            id: uid(),
+            ingredientId: itemId,
+            ingredientName: item.name,
+            quantity: target - oldStock,
+            originalQuantity: target - oldStock,
+            receivedAt: new Date().toISOString(),
+            expiryDate: null,
+            deliveryId: null,
+            poNumber: null,
+            supplier: 'Manual Adjustment',
+            isExhausted: false,
+          })
+        }
+        newStock = recalculateStock(itemId)
+      }
       db.ingredients[i] = { ...item, current_stock: newStock }
       const logEntry = {
         id: uid(),
@@ -634,39 +725,40 @@ export const api = {
         return Promise.reject(new Error('Admin access required'))
       }
 
-      const ingredients = [...(db.ingredients || [])]
       const createdLogs = []
 
-      ingredients.forEach((item) => {
-        if (!item.expiry_date) return
-        const status = getExpiryStatus(item.expiry_date)
-        const formattedDate = formatDateForLog(item.expiry_date)
-        if (!status) return
+      // Check per batch (not per ingredient)
+      ;(db.stockBatches || [])
+        .filter((b) => !b.isExhausted && b.expiryDate)
+        .forEach((batch) => {
+          const status = getExpiryStatus(batch.expiryDate)
+          const formattedDate = formatDateForLog(batch.expiryDate)
+          if (!status) return
 
-        if (status.severity === 'critical') {
-          const log = createLog({
-            action: 'expired',
-            ingredientId: item.id,
-            ingredientName: item.name,
-            performedBy: 'System',
-            details: `${item.name} has expired (expired: ${formattedDate})`,
-            newValue: formattedDate,
-            severity: 'critical',
-          })
-          createdLogs.push(log)
-        } else if (status.severity === 'warning') {
-          const log = createLog({
-            action: 'expiring_soon',
-            ingredientId: item.id,
-            ingredientName: item.name,
-            performedBy: 'System',
-            details: `${item.name} is expiring in ${status.days} days (${formattedDate})`,
-            newValue: formattedDate,
-            severity: 'warning',
-          })
-          createdLogs.push(log)
-        }
-      })
+          if (status.severity === 'critical') {
+            const log = createLog({
+              action: 'expired',
+              ingredientId: batch.ingredientId,
+              ingredientName: batch.ingredientName,
+              performedBy: 'System',
+              details: `${batch.ingredientName} — batch from ${formatDateForLog(batch.receivedAt)} has expired (${batch.quantity} remaining)`,
+              newValue: formattedDate,
+              severity: 'critical',
+            })
+            createdLogs.push(log)
+          } else if (status.severity === 'warning') {
+            const log = createLog({
+              action: 'expiring_soon',
+              ingredientId: batch.ingredientId,
+              ingredientName: batch.ingredientName,
+              performedBy: 'System',
+              details: `${batch.ingredientName} — batch from ${formatDateForLog(batch.receivedAt)} expiring in ${status.days} days (${batch.quantity} remaining)`,
+              newValue: formattedDate,
+              severity: 'warning',
+            })
+            createdLogs.push(log)
+          }
+        })
 
       return Promise.resolve(createdLogs)
     },
@@ -870,7 +962,7 @@ export const api = {
 
   deliveries: {
     list(limit = 100) {
-      const list = [...(db.deliveries || [])].sort((a, b) => new Date(b.delivery_date) - new Date(a.delivery_date))
+      const list = [...(db.deliveries || [])].sort((a, b) => new Date(b.receivedAt) - new Date(a.receivedAt))
       return Promise.resolve(list.slice(0, limit))
     },
     create(data) {
@@ -952,6 +1044,24 @@ export const api = {
           current_stock: newStock,
           ...(line.expiry_date ? { expiry_date: line.expiry_date } : {}),
         }
+
+        // Create stock batch for FIFO tracking
+        const batchId = uid()
+        db.stockBatches = db.stockBatches || []
+        db.stockBatches.push({
+          id: batchId,
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          quantity: quantityReceived,
+          originalQuantity: quantityReceived,
+          receivedAt: receivedAt || new Date().toISOString(),
+          expiryDate: line.expiry_date || null,
+          deliveryId: null,
+          _pendingLink: batchId, // temporary tag — replaced with deliveryId below
+          poNumber: po?.po_number || null,
+          supplier: supplier || po?.supplier || 'supplier',
+          isExhausted: false,
+        })
 
         const stockLogEntry = {
           id: uid(),
@@ -1074,6 +1184,14 @@ export const api = {
         items: normalizedItems,
       }
 
+      // Link batches to this delivery using the temporary tag
+      ;(db.stockBatches || []).forEach((b) => {
+        if (b._pendingLink) {
+          b.deliveryId = row.id
+          delete b._pendingLink
+        }
+      })
+
       db.deliveries.push(row)
       save(db)
       return Promise.resolve(row)
@@ -1129,6 +1247,24 @@ export const api = {
           current_stock: newStock,
           ...(line.expiry_date ? { expiry_date: line.expiry_date } : {}),
         }
+
+        // Create stock batch for FIFO tracking
+        const partialBatchId = uid()
+        db.stockBatches = db.stockBatches || []
+        db.stockBatches.push({
+          id: partialBatchId,
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          quantity: safeNowReceiving,
+          originalQuantity: safeNowReceiving,
+          receivedAt: receivedAt || new Date().toISOString(),
+          expiryDate: line.expiry_date || null,
+          deliveryId: null,
+          _pendingLink: partialBatchId,
+          poNumber: po.po_number,
+          supplier: po.supplier || 'supplier',
+          isExhausted: false,
+        })
 
         db.stockLogs.push({
           id: uid(),
@@ -1223,6 +1359,14 @@ export const api = {
         items: normalizedItems,
       }
 
+      // Link batches to this delivery using the temporary tag
+      ;(db.stockBatches || []).forEach((b) => {
+        if (b._pendingLink) {
+          b.deliveryId = row.id
+          delete b._pendingLink
+        }
+      })
+
       db.deliveries.push(row)
       save(db)
       return Promise.resolve(row)
@@ -1238,6 +1382,27 @@ export const api = {
       db.deliveries = (db.deliveries || []).filter((x) => x.id !== id)
       save(db)
       return Promise.resolve()
+    },
+  },
+
+  // ── Stock Batches (FIFO tracking) ────────────────────────────────────────
+  stockBatches: {
+    list(ingredientId) {
+      let batches = [...(db.stockBatches || [])]
+      if (ingredientId) batches = batches.filter((b) => b.ingredientId === ingredientId)
+      return Promise.resolve(batches.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt)))
+    },
+    getActive(ingredientId) {
+      const batches = (db.stockBatches || [])
+        .filter((b) => b.ingredientId === ingredientId && !b.isExhausted)
+        .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
+      return Promise.resolve(batches)
+    },
+    getByIngredient(ingredientId) {
+      const batches = (db.stockBatches || [])
+        .filter((b) => b.ingredientId === ingredientId)
+        .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
+      return Promise.resolve(batches)
     },
   },
 

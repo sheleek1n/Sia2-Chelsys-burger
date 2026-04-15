@@ -447,7 +447,7 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
       onClose()
     } catch (err) {
       console.error(err)
-      toast.error('Failed to record delivery')
+      toast.error(err?.message || 'Failed to record delivery')
     } finally {
       setLoading(false)
     }
@@ -695,6 +695,7 @@ function DeliveryDetailModal({ delivery, onClose }) {
                   <th className="px-3 py-2 text-left font-medium">Expiry</th>
                   <th className="px-3 py-2 text-right font-medium">Cost/Unit</th>
                   <th className="px-3 py-2 text-right font-medium">Line Total</th>
+                  <th className="px-3 py-2 text-left font-medium">Batch</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -713,12 +714,15 @@ function DeliveryDetailModal({ delivery, onClose }) {
                     <td className="px-3 py-2 text-slate-600">{item.expiry_date ? formatDate(item.expiry_date) : '-'}</td>
                     <td className="px-3 py-2 text-right text-slate-500">{formatCurrency(item.unitCost)}</td>
                     <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.totalCost)}</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center text-[11px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">Batch tracked</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot className="bg-slate-50 font-bold border-t">
                 <tr>
-                  <td colSpan={5} className="px-3 py-2 text-right text-slate-500">Total Value</td>
+                  <td colSpan={6} className="px-3 py-2 text-right text-slate-500">Total Value</td>
                   <td className="px-3 py-2 text-right">{formatCurrency(delivery.totalValue)}</td>
                 </tr>
               </tfoot>
