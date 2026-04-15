@@ -1063,7 +1063,24 @@ export default function SupplyChain() {
                     <td className="px-5 py-3 text-center">
                       <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${del.purchaseOrderId && del.purchaseOrderId !== 'Direct' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>{del.purchaseOrderId || 'Direct'}</span>
                     </td>
-                    <td className="px-5 py-3 text-slate-500">{del.items?.length || 0} items ({(del.items || []).reduce((sum, item) => sum + Number(item.quantityReceived || 0), 0)} total)</td>
+                    <td className="px-5 py-3 text-slate-500">
+                      <div>{del.items?.length || 0} items ({(del.items || []).reduce((sum, item) => sum + Number(item.quantityReceived || 0), 0)} total)</div>
+                      {del.items?.some(item => item.expiry_date) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {del.items.filter(item => item.expiry_date).map((item, i) => {
+                            const exp = new Date(`${item.expiry_date}T00:00:00`)
+                            const now = new Date()
+                            const daysLeft = Math.ceil((exp - now) / 86400000)
+                            const color = daysLeft < 0 ? 'bg-red-100 text-red-700' : daysLeft <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-green-50 text-green-700'
+                            return (
+                              <span key={i} className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-medium ${color}`}>
+                                {item.ingredientName?.split(' ').slice(0, 2).join(' ')}: {formatDate(item.expiry_date)}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-right font-medium text-green-700">{formatCurrency(del.totalValue)}</td>
                     <td className="px-5 py-3 text-slate-500">{del.receivedBy}</td>
                     <td className="px-5 py-3 text-right">
