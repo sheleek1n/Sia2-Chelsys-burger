@@ -21,10 +21,30 @@ const STATUS_CONFIG = {
 }
 const DEFAULT_UNCATEGORIZED_ID = 7
 
+// ─── Batch helpers ────────────────────────────────────────────────────
+function getActiveBatches(ingredientId, allBatches) {
+  return (allBatches || [])
+    .filter((b) => b.ingredientId === ingredientId && !b.isExhausted)
+    .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
+}
+
+function getFIFOBatch(ingredientId, allBatches) {
+  const active = getActiveBatches(ingredientId, allBatches)
+  return active.length > 0 ? active[0] : null
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 // ─── Item Card ───────────────────────────────────────────────────────
-function ItemCard({ item, onOpenPack }) {
+function ItemCard({ item, batches, onOpenPack }) {
   const status = getStatus(item)
   const { badge, cardCls, badgeCls } = STATUS_CONFIG[status]
+  const [showBatches, setShowBatches] = useState(false)
+  const activeBatches = getActiveBatches(item.id, batches)
 
   return (
     <div
@@ -32,18 +52,60 @@ function ItemCard({ item, onOpenPack }) {
       style={{ minHeight: '160px' }}
     >
       {/* Card body */}
-      <div className="flex-1 p-4 flex flex-col gap-1">
+      <div className="flex-1 p-4 flex flex-col gap-2">
         <p className="text-base font-bold text-gray-900 leading-tight">{item.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{item.unit}</p>
+        <p className="text-xs text-muted-foreground">{item.unit}</p>
 
-        <div className="mt-auto flex items-center justify-between pt-2">
-          <span className="text-sm font-semibold text-gray-800">
-            {item.current_stock ?? 0} packs left
-          </span>
-          <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${badgeCls}`}>
+        <div className="mt-auto flex items-start justify-between gap-1">
+          <div className="text-sm font-semibold text-gray-800 leading-tight">
+            <div>{(item.current_stock ?? 0)} unopened packs</div>
+            {item.pieces_per_pack && (
+              <div className={`text-xs mt-0.5 ${(item.open_pieces || 0) > 0 ? 'text-blue-600 font-medium' : 'text-gray-400 font-normal'}`}>
+                {item.open_pieces || 0} open pieces
+              </div>
+            )}
+            {item.pieces_per_pack && (
+              <div className="text-[10px] text-gray-400 font-normal mt-0.5">
+                {(item.current_stock ?? 0) * item.pieces_per_pack + (item.open_pieces || 0)} total pcs
+              </div>
+            )}
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 ${badgeCls}`}>
             {badge}
           </span>
         </div>
+
+        {/* Batch summary toggle */}
+        {activeBatches.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowBatches(!showBatches)}
+            className="mt-1 text-left text-[11px] text-blue-600 hover:underline font-medium"
+          >
+            {showBatches ? '▼' : '▶'} {activeBatches.length} shipment{activeBatches.length > 1 ? 's' : ''}
+          </button>
+        )}
+
+        {/* Batch details (expanded) */}
+        {showBatches && activeBatches.length > 0 && (
+          <div className="mt-1 pt-2 border-t border-gray-200 space-y-1">
+            {activeBatches.map((batch, idx) => (
+              <div key={batch.id} className="text-[10px] text-gray-600 p-1.5 bg-slate-50 rounded">
+                <div className="flex justify-between items-start gap-1">
+                  <span className="font-semibold">{idx === 0 ? 'USING NOW' : `#${idx + 1}`}</span>
+                  <span className="text-right">
+                    {batch.quantity} / {batch.originalQuantity} left
+                  </span>
+                </div>
+                <div className="text-[9px] text-gray-500 mt-0.5">
+                  Rcv: {formatDate(batch.receivedAt)} {batch.expiryDate && `• Exp: ${formatDate(batch.expiryDate)}`}
+                </div>
+                {batch.supplier && <div className="text-[9px] text-gray-500">{batch.supplier}</div>}
+                {batch.poNumber && <div className="text-[9px] text-gray-400">{batch.poNumber}</div>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* CTA */}
@@ -66,13 +128,17 @@ function ItemCard({ item, onOpenPack }) {
 }
 
 // ─── Confirm Modal ───────────────────────────────────────────────────
-function ConfirmModal({ item, onCancel, onConfirm, loading }) {
+function ConfirmModal({ item, batches, onCancel, onConfirm, loading }) {
   const [note, setNote] = useState('')
   const [qty, setQty] = useState(1)
   if (!item) return null
 
   const safeQty = Math.max(1, Math.min(qty || 1, item.current_stock ?? 1))
   const nextStock = Math.max(0, (item.current_stock ?? 0) - safeQty)
+  const fifoBatch = getFIFOBatch(item.id, batches)
+  const piecesPerPack = item.pieces_per_pack || null
+  const oldOpenPieces = item.open_pieces || 0
+  const newOpenPieces = oldOpenPieces + (safeQty * (piecesPerPack || 0))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
@@ -84,6 +150,14 @@ function ConfirmModal({ item, onCancel, onConfirm, loading }) {
 
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
+          {/* Shows which shipment the pack will come from (oldest/soonest-to-expire first) */}
+          {fifoBatch && (
+            <div className="text-xs p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700">
+              <strong>Using stock from:</strong> Shipment #{fifoBatch.id?.slice(-4) || '?'}
+              {fifoBatch.expiryDate && ` • Expires: ${formatDate(fifoBatch.expiryDate)}`}
+            </div>
+          )}
+
           {/* Quantity selector */}
           <div>
             <label className="text-xs font-semibold text-gray-600 block mb-1">How many packs?</label>
@@ -114,12 +188,24 @@ function ConfirmModal({ item, onCancel, onConfirm, loading }) {
             </div>
           </div>
 
-          <p className="text-sm text-gray-700">
-            Stock after:&nbsp;
-            <span className="font-semibold">
-              {item.current_stock} → {nextStock} remaining
-            </span>
-          </p>
+          {/* Stock preview */}
+          <div className="text-sm text-gray-700 space-y-1">
+            <p>
+              <span className="font-semibold">Unopened Packs:</span> {item.current_stock} → {nextStock}
+            </p>
+            {piecesPerPack && (
+              <>
+                <p>
+                  <span className="font-semibold">Open Pieces:</span> {oldOpenPieces} → {newOpenPieces}
+                  <span className="text-xs text-gray-500 ml-1">({piecesPerPack} per pack)</span>
+                </p>
+                <p className="text-xs text-gray-500 pt-1 border-t border-gray-200">
+                  Total: {nextStock * piecesPerPack + newOpenPieces} pieces
+                  ({nextStock} unopened × {piecesPerPack} + {newOpenPieces} open)
+                </p>
+              </>
+            )}
+          </div>
 
           {/* Stock issue note */}
           <div>
@@ -170,6 +256,7 @@ export default function ProductionLog() {
 
   const [items, setItems] = useState([])
   const [categories, setCategories] = useState([])
+  const [batches, setBatches] = useState([])
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
@@ -177,10 +264,11 @@ export default function ProductionLog() {
   const [todayConsumed, setTodayConsumed] = useState({})
 
   const loadItems = useCallback(() => {
-    Promise.all([api.ingredients.list(), api.ingredientCategories.list()])
-      .then(([ingredients, categoryRows]) => {
+    Promise.all([api.ingredients.list(), api.ingredientCategories.list(), api.stockBatches.list()])
+      .then(([ingredients, categoryRows, batchRows]) => {
         setItems(ingredients)
         setCategories(categoryRows)
+        setBatches(batchRows)
         setLoading(false)
       })
       .catch(() => {
@@ -208,7 +296,12 @@ export default function ProductionLog() {
       setSelected(null)
       api.stockLogs.todayConsumed().then(setTodayConsumed)
 
-      toast.success(`✅ ${updated.name} — ${qty} pack${qty > 1 ? 's' : ''} opened`)
+      const piecesPerPack = updated.pieces_per_pack || null
+      if (piecesPerPack) {
+        toast.success(`✅ ${updated.name} — ${qty} pack${qty > 1 ? 's' : ''} opened → ${updated.current_stock} unopened, ${updated.open_pieces} open pieces`)
+      } else {
+        toast.success(`✅ ${updated.name} — ${qty} pack${qty > 1 ? 's' : ''} opened`)
+      }
 
       const status = getStatus(updated)
       if (status === 'low' || status === 'critical') {
@@ -296,11 +389,16 @@ export default function ProductionLog() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
           <p className="text-xs font-semibold text-amber-800 mb-2">Opened today</p>
           <div className="flex flex-wrap gap-2">
-            {Object.entries(todayConsumed).map(([name, count]) => (
-              <span key={name} className="bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 rounded-full">
-                {name} × {count}
-              </span>
-            ))}
+            {Object.entries(todayConsumed).map(([name, count]) => {
+              const ing = items.find((i) => i.name === name)
+              const piecesPerPack = ing?.pieces_per_pack || null
+              const pieces = piecesPerPack ? count * piecesPerPack : null
+              return (
+                <span key={name} className="bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-1 rounded-full">
+                  {name} × {count} packs{pieces ? ` (${pieces} pieces)` : ''}
+                </span>
+              )
+            })}
           </div>
         </div>
       )}
@@ -357,7 +455,7 @@ export default function ProductionLog() {
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {section.items.map((item) => (
-                  <ItemCard key={item.id} item={item} onOpenPack={handleOpenPack} />
+                  <ItemCard key={item.id} item={item} batches={batches} onOpenPack={handleOpenPack} />
                 ))}
               </div>
             </div>
@@ -368,6 +466,7 @@ export default function ProductionLog() {
       {/* ── Confirm Modal ── */}
       <ConfirmModal
         item={selected}
+        batches={batches}
         onCancel={handleCancel}
         onConfirm={handleConfirm}
         loading={confirming}

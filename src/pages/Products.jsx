@@ -15,6 +15,7 @@ import IngredientForm from '@/components/inventory/IngredientForm'
 import { useAuth } from '@/lib/AuthContext'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
 import MenuItemImage from '@/components/shared/MenuItemImage'
+import DeleteConfirmModal from '@/components/shared/DeleteConfirmModal'
 
 const CATEGORIES = ['burger', 'chicken', 'sides', 'drinks', 'combo', 'dessert', 'snacks', 'other']
 const CATEGORY_COLORS = {
@@ -125,7 +126,7 @@ export default function Products() {
   const [menuItems, setMenuItems] = useState([])
   const [menuFormOpen, setMenuFormOpen] = useState(false)
   const [menuEditing, setMenuEditing] = useState(null)
-  const [menuForm, setMenuForm] = useState({ name: '', category: 'burger', price: 0, is_available: true, emoji: null, image: null })
+  const [menuForm, setMenuForm] = useState({ name: '', category: 'burger', price: 0, is_available: true, emoji: null, image: null, recipe: [] })
   const [menuLoading, setMenuLoading] = useState(true)
   const [salesCounts, setSalesCounts] = useState({})
 
@@ -156,6 +157,7 @@ export default function Products() {
   const [logActionFilter, setLogActionFilter] = useState('all')
   const [logSearch, setLogSearch] = useState('')
   const [logPage, setLogPage] = useState(1)
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // { type, id, name, onConfirm }
 
   const loadMenu = () => api.menuItems.list().then((i) => { setMenuItems(i); setMenuLoading(false) }).catch(() => { setMenuLoading(false); toast.error('Failed to load menu items') })
   const loadSalesCounts = () => api.orders.list().then((orders) => {
@@ -265,7 +267,7 @@ export default function Products() {
   // Menu Handlers
   const openMenuForm = (item = null) => {
     setMenuEditing(item)
-    setMenuForm(item ? { ...item, emoji: item.emoji ?? null, image: item.image ?? null } : { name: '', category: 'burger', price: 0, is_available: true, emoji: null, image: null })
+    setMenuForm(item ? { ...item, emoji: item.emoji ?? null, image: item.image ?? null, recipe: item.recipe || [] } : { name: '', category: 'burger', price: 0, is_available: true, emoji: null, image: null, recipe: [] })
     setMenuFormOpen(true)
   }
 
@@ -281,10 +283,18 @@ export default function Products() {
     loadMenu()
   }
 
-  const handleMenuDelete = async (id) => {
-    await api.menuItems.delete(id)
-    toast.success('Deleted!')
-    loadMenu()
+  const handleMenuDelete = (item) => {
+    setDeleteConfirm({
+      type: 'menu',
+      title: 'Delete Menu Item',
+      message: <>Remove <strong>{item.name}</strong> from the menu?</>,
+      onConfirm: async () => {
+        await api.menuItems.delete(item.id)
+        toast.success('Deleted!')
+        setDeleteConfirm(null)
+        loadMenu()
+      },
+    })
   }
 
   const toggleAvailability = async (item) => {
@@ -306,10 +316,18 @@ export default function Products() {
     loadIngredients()
   }
 
-  const handleIngredientDelete = async (id) => {
-    await api.ingredients.delete(id)
-    toast.success('Deleted!')
-    loadIngredients()
+  const handleIngredientDelete = (item) => {
+    setDeleteConfirm({
+      type: 'ingredient',
+      title: 'Delete Ingredient',
+      message: <>Remove <strong>{item.name}</strong> from inventory? All batch history for this ingredient will also be lost.</>,
+      onConfirm: async () => {
+        await api.ingredients.delete(item.id)
+        toast.success('Deleted!')
+        setDeleteConfirm(null)
+        loadIngredients()
+      },
+    })
   }
 
   const openCategoryManager = () => {
@@ -351,17 +369,26 @@ export default function Products() {
     }
   }
 
-  const deleteCategory = async (category) => {
-    try {
-      await api.ingredientCategories.delete(category.id)
-      toast.success('Category deleted')
-      if (ingredientCategoryFilter === String(category.id)) {
-        setIngredientCategoryFilter('all')
-      }
-      await loadIngredientCategories()
-    } catch (err) {
-      toast.error(err?.message || 'Failed to delete category')
-    }
+  const deleteCategory = (category) => {
+    setDeleteConfirm({
+      type: 'category',
+      title: 'Delete Category',
+      message: <>Remove the <strong>{category.name}</strong> category?</>,
+      onConfirm: async () => {
+        try {
+          await api.ingredientCategories.delete(category.id)
+          toast.success('Category deleted')
+          setDeleteConfirm(null)
+          if (ingredientCategoryFilter === String(category.id)) {
+            setIngredientCategoryFilter('all')
+          }
+          await loadIngredientCategories()
+        } catch (err) {
+          toast.error(err?.message || 'Failed to delete category')
+          setDeleteConfirm(null)
+        }
+      },
+    })
   }
 
   const openAdjustModal = (item) => {
@@ -425,12 +452,12 @@ export default function Products() {
     const exhaustedCount = batchData.filter((b) => b.isExhausted).length
     return (
       <tr key={`batches-${ingredientId}`}>
-        <td colSpan={9} className="px-0 py-0">
+        <td colSpan={10} className="px-0 py-0">
           <div className="bg-slate-50/50 border-t border-b px-6 py-3">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
                 <Package className="w-3.5 h-3.5" />
-                FIFO Batch Tracking — oldest batch consumed first
+                Stock Shipments — oldest is used first to avoid waste
               </div>
               {exhaustedCount > 0 && (
                 <button
@@ -448,11 +475,11 @@ export default function Products() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-muted-foreground">
-                    <th className="text-left py-1.5 pr-4 font-medium">Batch</th>
+                    <th className="text-left py-1.5 pr-4 font-medium">Shipment</th>
                     <th className="text-left py-1.5 pr-4 font-medium">Received</th>
                     <th className="text-left py-1.5 pr-4 font-medium">Expires</th>
-                    <th className="text-right py-1.5 pr-4 font-medium">Remaining</th>
-                    <th className="text-right py-1.5 pr-4 font-medium">Original</th>
+                    <th className="text-right py-1.5 pr-4 font-medium">Left</th>
+                    <th className="text-right py-1.5 pr-4 font-medium">Started With</th>
                     <th className="text-left py-1.5 pr-4 font-medium">Supplier</th>
                     <th className="text-left py-1.5 font-medium">PO</th>
                   </tr>
@@ -464,7 +491,7 @@ export default function Products() {
                       <tr key={batch.id} className={`${batch.isExhausted ? 'opacity-40 line-through' : getBatchExpiryTint(batch.expiryDate)} ${idx === 0 && !batch.isExhausted ? 'font-medium' : ''}`}>
                         <td className="py-1.5 pr-4">
                           #{idx + 1}
-                          {idx === 0 && !batch.isExhausted && <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">NEXT</span>}
+                          {idx === 0 && !batch.isExhausted && <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">USING NOW</span>}
                         </td>
                         <td className="py-1.5 pr-4 text-muted-foreground">{format(new Date(batch.receivedAt), 'MMM d, yyyy')}</td>
                         <td className="py-1.5 pr-4">
@@ -795,7 +822,7 @@ export default function Products() {
                           <p className="font-semibold">{item.name}</p>
                           <div className="flex gap-1">
                             <button type="button" onClick={() => openMenuForm(item)} className="text-muted-foreground hover:text-primary p-1"><Pencil className="w-3.5 h-3.5" /></button>
-                            <button type="button" onClick={() => handleMenuDelete(item.id)} className="text-muted-foreground hover:text-destructive p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                            <button type="button" onClick={() => handleMenuDelete(item)} className="text-muted-foreground hover:text-destructive p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                         </div>
                         <p className="text-primary font-bold text-lg mt-1">₱{(item.price || 0).toFixed(2)}</p>
@@ -858,7 +885,8 @@ export default function Products() {
                 <tr className="border-b bg-muted/20">
                   <th className="text-left px-5 py-3 font-semibold text-muted-foreground">Inventory Item</th>
                   <th className="text-left px-5 py-3 font-semibold text-muted-foreground">Unit</th>
-                  <th className="text-right px-5 py-3 font-semibold text-muted-foreground">Stock</th>
+                  <th className="text-right px-5 py-3 font-semibold text-muted-foreground">Packs</th>
+                  <th className="text-right px-5 py-3 font-semibold text-muted-foreground">Pieces</th>
                   <th className="text-right px-5 py-3 font-semibold text-muted-foreground">Warning Level</th>
                   <th className="text-right px-5 py-3 font-semibold text-muted-foreground">Cost/Unit</th>
                   <th className="text-left px-5 py-3 font-semibold text-muted-foreground">Supplier</th>
@@ -868,8 +896,8 @@ export default function Products() {
                 </tr>
               </thead>
               <tbody>
-                {ingredientLoading && <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">Loading...</td></tr>}
-                {!ingredientLoading && filteredIngredients.length === 0 && <tr><td colSpan={9} className="text-center py-12 text-muted-foreground">No inventory items found.</td></tr>}
+                {ingredientLoading && <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">Loading...</td></tr>}
+                {!ingredientLoading && filteredIngredients.length === 0 && <tr><td colSpan={10} className="text-center py-12 text-muted-foreground">No inventory items found.</td></tr>}
                 {ingredientCategoryFilter !== 'all' && filteredIngredients.map((item) => {
                   const expiryStatus = api.ingredients.getExpiryStatus(item.expiry_date)
                   const isExpired = expiryStatus?.severity === 'critical'
@@ -894,6 +922,20 @@ export default function Products() {
                         </td>
                         <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
                         <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
+                        <td className="px-5 py-3 text-right">
+                          {item.pieces_per_pack && item.pieces_per_pack > 1 ? (
+                            <div className="leading-tight">
+                              <div className="font-semibold">
+                                {(item.current_stock || 0) * item.pieces_per_pack + (item.open_pieces || 0)} pcs
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {item.open_pieces || 0} ready
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
                         <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
                         <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
@@ -919,7 +961,7 @@ export default function Products() {
                             <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
                               <Pencil className="w-4 h-4" />
                             </button>
-                            <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
+                            <button type="button" onClick={() => handleIngredientDelete(item)} className="text-muted-foreground hover:text-destructive">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
@@ -932,13 +974,13 @@ export default function Products() {
                 {ingredientCategoryFilter === 'all' && groupedIngredientSections.map((section) => (
                   <Fragment key={`section-${section.category.id}`}>
                     <tr key={`header-${section.category.id}`} className="bg-slate-50/80 border-b">
-                      <td colSpan={9} className="px-5 py-2.5 text-sm font-semibold text-slate-700">
+                      <td colSpan={10} className="px-5 py-2.5 text-sm font-semibold text-slate-700">
                         {section.category.emoji} {section.category.name}
                       </td>
                     </tr>
                     {section.items.length === 0 && Number(section.category.id) === DEFAULT_UNCATEGORIZED_ID && (
                       <tr key={`empty-${section.category.id}`} className="border-b">
-                        <td colSpan={9} className="px-5 py-3 text-sm text-muted-foreground">No uncategorized ingredients</td>
+                        <td colSpan={10} className="px-5 py-3 text-sm text-muted-foreground">No uncategorized ingredients</td>
                       </tr>
                     )}
                     {section.items.map((item) => {
@@ -965,6 +1007,20 @@ export default function Products() {
                             </td>
                             <td className="px-5 py-3 text-muted-foreground">{item.unit}</td>
                             <td className={`px-5 py-3 text-right font-semibold ${isLow ? 'text-red-600' : ''}`}>{item.current_stock}</td>
+                            <td className="px-5 py-3 text-right">
+                              {item.pieces_per_pack && item.pieces_per_pack > 1 ? (
+                                <div className="leading-tight">
+                                  <div className="font-semibold">
+                                    {(item.current_stock || 0) * item.pieces_per_pack + (item.open_pieces || 0)} pcs
+                                  </div>
+                                  <div className="text-[11px] text-muted-foreground">
+                                    {item.open_pieces || 0} ready
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
                             <td className="px-5 py-3 text-right text-muted-foreground">{item.warning_level}</td>
                             <td className="px-5 py-3 text-right">₱{(item.cost_per_unit || 0).toFixed(2)}</td>
                             <td className="px-5 py-3 text-muted-foreground">{item.supplier || '-'}</td>
@@ -990,7 +1046,7 @@ export default function Products() {
                                 <button type="button" onClick={() => { setIngredientEditing(item); setIngredientFormOpen(true) }} className="text-muted-foreground hover:text-primary">
                                   <Pencil className="w-4 h-4" />
                                 </button>
-                                <button type="button" onClick={() => handleIngredientDelete(item.id)} className="text-muted-foreground hover:text-destructive">
+                                <button type="button" onClick={() => handleIngredientDelete(item)} className="text-muted-foreground hover:text-destructive">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
@@ -1234,7 +1290,7 @@ export default function Products() {
 
       {/* Menu Dialog */}
       <Dialog open={menuFormOpen} onOpenChange={setMenuFormOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{menuEditing ? 'Edit Item' : 'Add Menu Item'}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
@@ -1319,6 +1375,107 @@ export default function Products() {
               )}
               <p className="text-xs text-muted-foreground mt-1">Image will replace the emoji icon on the POS screen.</p>
             </div>
+
+            {/* ── Recipe — tap-to-add ingredient grid ─────────────── */}
+            <div>
+              <Label>Recipe / Ingredients Used</Label>
+              <p className="text-xs text-muted-foreground mt-0.5 mb-3">Tap an ingredient to add it. Adjust quantity with +/- buttons.</p>
+
+              {/* Selected ingredients summary */}
+              {(menuForm.recipe || []).length > 0 && (
+                <div className="mb-3 rounded-lg border border-[#B01010]/20 bg-red-50/40 p-3">
+                  <p className="text-[11px] font-semibold text-[#B01010] uppercase tracking-wide mb-2">Per order this item needs:</p>
+                  <div className="space-y-1.5">
+                    {(menuForm.recipe || []).map((r) => {
+                      const ing = ingredients.find((i) => i.id === r.ingredientId)
+                      if (!ing) return null
+                      return (
+                        <div key={r.ingredientId} className="flex items-center justify-between">
+                          <span className="text-sm text-gray-700">{ing.name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setMenuForm((f) => {
+                                const qty = r.qty - 1
+                                if (qty <= 0) return { ...f, recipe: (f.recipe || []).filter((x) => x.ingredientId !== r.ingredientId) }
+                                return { ...f, recipe: (f.recipe || []).map((x) => x.ingredientId === r.ingredientId ? { ...x, qty } : x) }
+                              })}
+                              className="w-6 h-6 rounded-md bg-white border border-gray-300 flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 text-sm font-bold"
+                            >
+                              -
+                            </button>
+                            <span className="w-8 text-center text-sm font-bold text-gray-900">{r.qty}</span>
+                            <button
+                              type="button"
+                              onClick={() => setMenuForm((f) => ({
+                                ...f,
+                                recipe: (f.recipe || []).map((x) => x.ingredientId === r.ingredientId ? { ...x, qty: x.qty + 1 } : x)
+                              }))}
+                              className="w-6 h-6 rounded-md bg-white border border-gray-300 flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 text-sm font-bold"
+                            >
+                              +
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMenuForm((f) => ({ ...f, recipe: (f.recipe || []).filter((x) => x.ingredientId !== r.ingredientId) }))}
+                              className="ml-1 w-6 h-6 rounded-md flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-500"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                            <span className="text-xs text-gray-400 w-16 text-right">{ing.unit}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Ingredient grid — grouped by category */}
+              <div className="rounded-lg border bg-slate-50/50 p-2 max-h-52 overflow-y-auto space-y-2">
+                {ingredientCategories.map((cat) => {
+                  const catIngredients = ingredients.filter((i) => (i.categoryId || 7) === Number(cat.id))
+                  if (catIngredients.length === 0) return null
+                  return (
+                    <div key={cat.id}>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider px-1 mb-1">{cat.emoji} {cat.name}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {catIngredients.map((ing) => {
+                          const inRecipe = (menuForm.recipe || []).find((r) => r.ingredientId === ing.id)
+                          return (
+                            <button
+                              key={ing.id}
+                              type="button"
+                              onClick={() => {
+                                if (inRecipe) {
+                                  // Already added — remove it
+                                  setMenuForm((f) => ({ ...f, recipe: (f.recipe || []).filter((r) => r.ingredientId !== ing.id) }))
+                                } else {
+                                  // Add with qty 1
+                                  setMenuForm((f) => ({ ...f, recipe: [...(f.recipe || []), { ingredientId: ing.id, qty: 1 }] }))
+                                }
+                              }}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                                inRecipe
+                                  ? 'bg-[#B01010] text-white border-[#B01010] shadow-sm'
+                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400 hover:bg-gray-50'
+                              }`}
+                            >
+                              {ing.name}
+                              {inRecipe && <span className="ml-1 bg-white/25 px-1 rounded text-[10px]">x{inRecipe.qty}</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+                {ingredients.length === 0 && (
+                  <p className="text-xs text-muted-foreground italic text-center py-4">No ingredients yet — add some in the Inventory tab first.</p>
+                )}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setMenuFormOpen(false)}>Cancel</Button>
               <Button onClick={handleMenuSave}>Save</Button>
@@ -1457,6 +1614,15 @@ export default function Products() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {deleteConfirm && (
+        <DeleteConfirmModal
+          title={deleteConfirm.title}
+          message={deleteConfirm.message}
+          onConfirm={deleteConfirm.onConfirm}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
     </div>
   )
 }

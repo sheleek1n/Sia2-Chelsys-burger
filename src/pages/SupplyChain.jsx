@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import PageHeader from '@/components/shared/PageHeader'
+import DeleteConfirmModal from '@/components/shared/DeleteConfirmModal'
 
 // ─── Formatting & Badges ─────────────────────────────────────────────
 const formatCurrency = (val) => `₱${Number(val || 0).toFixed(2)}`
@@ -738,6 +739,7 @@ function DeliveryDetailModal({ delivery, onClose }) {
 function ManageSuppliersModal({ open, onClose, savedSuppliers, onChanged }) {
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
 
   const handleAdd = async (e) => {
     e.preventDefault()
@@ -755,13 +757,16 @@ function ManageSuppliersModal({ open, onClose, savedSuppliers, onChanged }) {
     }
   }
 
-  const handleDelete = async (name) => {
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
     try {
-      await api.suppliers.remove(name)
-      toast.success(`"${name}" removed`)
+      await api.suppliers.remove(deleteTarget)
+      toast.success(`"${deleteTarget}" removed`)
+      setDeleteTarget(null)
       onChanged()
     } catch (err) {
       toast.error(err.message || 'Failed to remove supplier')
+      setDeleteTarget(null)
     }
   }
 
@@ -795,7 +800,7 @@ function ManageSuppliersModal({ open, onClose, savedSuppliers, onChanged }) {
                 <span className="text-sm text-gray-800">{s}</span>
                 <button
                   type="button"
-                  onClick={() => handleDelete(s)}
+                  onClick={() => setDeleteTarget(s)}
                   className="text-gray-300 hover:text-red-500 group-hover:text-gray-400 transition-colors"
                   title="Remove"
                 >
@@ -804,6 +809,14 @@ function ManageSuppliersModal({ open, onClose, savedSuppliers, onChanged }) {
               </div>
             ))}
           </div>
+          {deleteTarget && (
+            <DeleteConfirmModal
+              title="Remove Supplier"
+              message={<>Remove <strong>{deleteTarget}</strong> from your saved suppliers?</>}
+              onConfirm={confirmDelete}
+              onCancel={() => setDeleteTarget(null)}
+            />
+          )}
         </div>
       </div>
     </div>

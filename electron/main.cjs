@@ -52,3 +52,8 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+// Close SQLite connection cleanly on quit
+app.on('will-quit', () => {
+  database.close()
+})

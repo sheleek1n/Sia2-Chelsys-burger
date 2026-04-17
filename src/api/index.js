@@ -44,38 +44,135 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw)
   } catch (_) {}
+  return buildFreshSeed()
+}
+
+/**
+ * Fresh demo seed — rich test data for exercising every feature:
+ *   • Piece-tracked items (buns, cheese) with pre-filled open_pieces
+ *   • Multiple FIFO batches per ingredient, varied expiry dates
+ *   • One low-stock item, one critical (zero) item
+ *   • Full menu with recipes → POS auto-deduction ready
+ *   • Sample orders from today + yesterday for report screens
+ */
+function buildFreshSeed() {
+  const today = new Date()
+  const iso = (daysOffset = 0) => {
+    const d = new Date(today)
+    d.setDate(d.getDate() + daysOffset)
+    return d.toISOString()
+  }
+  const ymd = (daysOffset = 0) => {
+    const d = new Date(today)
+    d.setDate(d.getDate() + daysOffset)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
   return {
     users: [
       { id: '1', username: 'admin', password: 'admin123', role: 'admin', full_name: 'Admin User' },
-      { id: '2', username: 'user', password: 'user123', role: 'cashier', full_name: 'Cashier User' },
+      { id: '2', username: 'user', password: 'user123', role: 'cashier', full_name: 'Maria' },
     ],
-    orders: [
-      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Admin', total_amount: 299, payment_method: 'cash', status: 'completed', order_date: localDate(), items: [{ menu_item_id: 'seed_menu_1', menu_item_name: 'Classic Burger', quantity: 1, unit_price: 299, subtotal: 299, emoji: '🍔' }] },
-    ],
-    // Unified ingredients — single source of truth for both Admin Inventory and Cashier Production Log
     ingredientCategories: [...DEFAULT_INGREDIENT_CATEGORIES],
     ingredients: [
-      { id: 'ing_1', name: 'Beef Patty',       unit: 'pcs',        current_stock: 50,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.', expiry_date: null, categoryId: 1 },
-      { id: 'ing_2', name: 'Burger Buns',      unit: 'pack of 24', current_stock: 80,  warning_level: 20, cost_per_unit: 8,   supplier: 'Bakery', expiry_date: null, categoryId: 2 },
-      { id: 'ing_3', name: 'Ketchup',          unit: '1kg bag',    current_stock: 2,   warning_level: 3,  cost_per_unit: 120, supplier: 'Condiments Inc.', expiry_date: null, categoryId: 4 },
-      { id: 'ing_4', name: 'Spicy Sauce',      unit: '1kg bag',    current_stock: 1,   warning_level: 2,  cost_per_unit: 95,  supplier: 'Condiments Inc.', expiry_date: null, categoryId: 4 },
-      { id: 'ing_5', name: 'Mayonnaise',       unit: '1kg bag',    current_stock: 5,   warning_level: 2,  cost_per_unit: 90,  supplier: 'Condiments Inc.', expiry_date: null, categoryId: 3 },
-      { id: 'ing_6', name: 'Cheese Slices',    unit: 'pack of 20', current_stock: 10,  warning_level: 4,  cost_per_unit: 75,  supplier: 'Dairy Best', expiry_date: null, categoryId: 3 },
-      { id: 'ing_7', name: 'Fries',            unit: '1kg bag',    current_stock: 15,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro', expiry_date: null, categoryId: 5 },
-      { id: 'ing_8', name: 'Chicken Fillets',  unit: 'pack of 10', current_stock: 20,  warning_level: 5,  cost_per_unit: 450, supplier: 'Poultry Farm', expiry_date: null, categoryId: 1 },
+      // ── PIECE-TRACKED (auto-deducted by POS via consumePieces) ─────────
+      // Each pack contains multiple pieces; loose pieces tracked in open_pieces.
+      { id: 'ing_2', name: 'Burger Buns',     unit: 'pack of 24', pieces_per_pack: 24,   current_stock: 4,   open_pieces: 18, warning_level: 3,  cost_per_unit: 8,   supplier: 'Sunrise Bakery',   expiry_date: ymd(3),   categoryId: 2 },
+      { id: 'ing_6', name: 'Cheese Slices',   unit: 'pack of 20', pieces_per_pack: 20,   current_stock: 6,   open_pieces: 12, warning_level: 3,  cost_per_unit: 75,  supplier: 'Dairy Best',       expiry_date: ymd(14),  categoryId: 3 },
+      { id: 'ing_8', name: 'Chicken Fillets', unit: 'pack of 10', pieces_per_pack: 10,   current_stock: 8,   open_pieces: 3,  warning_level: 4,  cost_per_unit: 450, supplier: 'Poultry Farm',     expiry_date: ymd(5),   categoryId: 1 },
+      { id: 'ing_9', name: 'Burger Box',      unit: 'pack of 50', pieces_per_pack: 50,   current_stock: 6,   open_pieces: 0,  warning_level: 2,  cost_per_unit: 250, supplier: 'Packaging Co.',    expiry_date: null,     categoryId: 6 },
+
+      // ── PACK-BASED COUNTABLE (auto-deducted by POS via consume) ────────
+      // 1 pack = 1 countable unit. No open_pieces concept (nothing "loose").
+      { id: 'ing_1', name: 'Beef Patty',      unit: 'pcs',        pieces_per_pack: null, current_stock: 48,  open_pieces: 0,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.',   expiry_date: ymd(7),   categoryId: 1 },
+
+      // ── BULK / MANUAL-ONLY (NOT in any recipe — not POS-linked) ────────
+      // Owner opens a bag/bottle via Production Log when empty; POS never touches these.
+      { id: 'ing_3', name: 'Ketchup',         unit: '1kg bag',    pieces_per_pack: null, current_stock: 2,   open_pieces: 0,  warning_level: 3,  cost_per_unit: 120, supplier: 'Condiments Inc.',  expiry_date: ymd(60),  categoryId: 4 }, // LOW
+      { id: 'ing_4', name: 'Spicy Sauce',     unit: '1kg bag',    pieces_per_pack: null, current_stock: 0,   open_pieces: 0,  warning_level: 2,  cost_per_unit: 95,  supplier: 'Condiments Inc.',  expiry_date: ymd(45),  categoryId: 4 }, // CRITICAL
+      { id: 'ing_5', name: 'Mayonnaise',      unit: '1kg bag',    pieces_per_pack: null, current_stock: 5,   open_pieces: 0,  warning_level: 2,  cost_per_unit: 90,  supplier: 'Condiments Inc.',  expiry_date: ymd(30),  categoryId: 3 },
+      { id: 'ing_7', name: 'Fries',           unit: '1kg bag',    pieces_per_pack: null, current_stock: 15,  open_pieces: 0,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro',          expiry_date: ymd(90),  categoryId: 5 },
+      { id: 'ing_10', name: 'Paper Wrap',     unit: 'roll',       pieces_per_pack: null, current_stock: 10,  open_pieces: 0,  warning_level: 3,  cost_per_unit: 80,  supplier: 'Packaging Co.',    expiry_date: null,     categoryId: 6 },
+    ],
+    // Multiple batches per ingredient → FIFO/expiry behavior is visible immediately
+    stockBatches: [
+      // Buns: 2 unopened packs batch A (older, closer expiry) + 2 unopened packs batch B
+      { id: 'batch_buns_1', ingredientId: 'ing_2', ingredientName: 'Burger Buns',     quantity: 2, originalQuantity: 5, receivedAt: iso(-5), expiryDate: ymd(3),  deliveryId: null, poNumber: 'PO-0001', supplier: 'Sunrise Bakery', isExhausted: false },
+      { id: 'batch_buns_2', ingredientId: 'ing_2', ingredientName: 'Burger Buns',     quantity: 2, originalQuantity: 2, receivedAt: iso(-1), expiryDate: ymd(7),  deliveryId: null, poNumber: 'PO-0002', supplier: 'Sunrise Bakery', isExhausted: false },
+      // Cheese: single batch
+      { id: 'batch_chs_1',  ingredientId: 'ing_6', ingredientName: 'Cheese Slices',   quantity: 6, originalQuantity: 6, receivedAt: iso(-3), expiryDate: ymd(14), deliveryId: null, poNumber: 'PO-0003', supplier: 'Dairy Best',     isExhausted: false },
+      // Beef: 2 batches
+      { id: 'batch_beef_1', ingredientId: 'ing_1', ingredientName: 'Beef Patty',      quantity: 20, originalQuantity: 30, receivedAt: iso(-4), expiryDate: ymd(5),  deliveryId: null, poNumber: 'PO-0004', supplier: 'Local Meat Co.', isExhausted: false },
+      { id: 'batch_beef_2', ingredientId: 'ing_1', ingredientName: 'Beef Patty',      quantity: 28, originalQuantity: 28, receivedAt: iso(-1), expiryDate: ymd(10), deliveryId: null, poNumber: 'PO-0005', supplier: 'Local Meat Co.', isExhausted: false },
+      // Chicken
+      { id: 'batch_chk_1',  ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', quantity: 8, originalQuantity: 10, receivedAt: iso(-2), expiryDate: ymd(5),  deliveryId: null, poNumber: 'PO-0006', supplier: 'Poultry Farm',   isExhausted: false },
+      // Pack-based: single opening batches
+      { id: 'batch_ket_1',  ingredientId: 'ing_3', ingredientName: 'Ketchup',         quantity: 2, originalQuantity: 4, receivedAt: iso(-10), expiryDate: ymd(60), deliveryId: null, poNumber: 'PO-0007', supplier: 'Condiments Inc.', isExhausted: false },
+      { id: 'batch_may_1',  ingredientId: 'ing_5', ingredientName: 'Mayonnaise',      quantity: 5, originalQuantity: 5, receivedAt: iso(-7),  expiryDate: ymd(30), deliveryId: null, poNumber: 'PO-0008', supplier: 'Condiments Inc.', isExhausted: false },
+      { id: 'batch_fry_1',  ingredientId: 'ing_7', ingredientName: 'Fries',           quantity: 15, originalQuantity: 15, receivedAt: iso(-6), expiryDate: ymd(90), deliveryId: null, poNumber: 'PO-0009', supplier: 'FoodPro',         isExhausted: false },
+      { id: 'batch_box_1',  ingredientId: 'ing_9', ingredientName: 'Burger Box',      quantity: 6, originalQuantity: 6, receivedAt: iso(-14), expiryDate: null,    deliveryId: null, poNumber: 'PO-0010', supplier: 'Packaging Co.',   isExhausted: false },
+      { id: 'batch_wrap_1', ingredientId: 'ing_10', ingredientName: 'Paper Wrap',     quantity: 10, originalQuantity: 10, receivedAt: iso(-20), expiryDate: null, deliveryId: null, poNumber: 'PO-0011', supplier: 'Packaging Co.',   isExhausted: false },
     ],
     menuItems: [
-      { id: 'seed_menu_1', name: 'Classic Burger',       category: 'burger', price: 299, is_available: true, emoji: null },
-      { id: 'seed_menu_2', name: 'Cheese Burger',        category: 'burger', price: 329, is_available: true, emoji: null },
-      { id: 'seed_menu_3', name: 'Fries',                category: 'sides',  price: 89,  is_available: true, emoji: null },
-      { id: 'seed_menu_4', name: 'Coke (Regular)',       category: 'drinks', price: 49,  is_available: true, emoji: null },
-      { id: 'seed_menu_5', name: 'Burger + Fries Combo', category: 'combo',  price: 349, is_available: true, emoji: null },
+      // Recipes contain ONLY countable ingredients (buns, patties, cheese, chicken, box).
+      // Sauces, fries-by-bag, paper wrap etc. are bulk — deducted manually via Production Log,
+      // never auto-deducted by POS.
+      { id: 'menu_1', name: 'Classic Burger',    category: 'burger', price: 99,  is_available: true, emoji: '🍔',
+        recipe: [
+          { ingredientId: 'ing_2', qty: 1 }, // 1 bun  (piece-tracked)
+          { ingredientId: 'ing_1', qty: 1 }, // 1 patty (pack-based countable)
+          { ingredientId: 'ing_9', qty: 1 }, // 1 burger box (piece-tracked)
+        ] },
+      { id: 'menu_2', name: 'Cheese Burger',     category: 'burger', price: 119, is_available: true, emoji: '🧀',
+        recipe: [
+          { ingredientId: 'ing_2', qty: 1 },
+          { ingredientId: 'ing_1', qty: 1 },
+          { ingredientId: 'ing_6', qty: 1 }, // 1 cheese slice
+          { ingredientId: 'ing_9', qty: 1 },
+        ] },
+      { id: 'menu_3', name: 'Double Cheese Burger', category: 'burger', price: 179, is_available: true, emoji: '🍔',
+        recipe: [
+          { ingredientId: 'ing_2', qty: 1 },
+          { ingredientId: 'ing_1', qty: 2 }, // 2 patties
+          { ingredientId: 'ing_6', qty: 2 }, // 2 cheese slices
+          { ingredientId: 'ing_9', qty: 1 },
+        ] },
+      { id: 'menu_4', name: 'Chicken Burger',    category: 'burger', price: 129, is_available: true, emoji: '🐔',
+        recipe: [
+          { ingredientId: 'ing_2', qty: 1 },
+          { ingredientId: 'ing_8', qty: 1 }, // 1 chicken fillet
+          { ingredientId: 'ing_9', qty: 1 },
+        ] },
+      // Fries: bulk bag — served from a manually-opened bag, no POS deduction
+      { id: 'menu_5', name: 'Fries',             category: 'sides',  price: 59,  is_available: true, emoji: '🍟', recipe: [] },
+      { id: 'menu_6', name: 'Burger + Fries Combo', category: 'combo', price: 149, is_available: true, emoji: '🍔',
+        recipe: [
+          { ingredientId: 'ing_2', qty: 1 },
+          { ingredientId: 'ing_1', qty: 1 },
+          { ingredientId: 'ing_9', qty: 1 },
+          // fries bag = manual
+        ] },
+      // Drinks: no consumable inventory tracked here
+      { id: 'menu_7', name: 'Coke (Regular)',    category: 'drinks', price: 39,  is_available: true, emoji: '🥤', recipe: [] },
+      { id: 'menu_8', name: 'Iced Tea',          category: 'drinks', price: 29,  is_available: true, emoji: '🧋', recipe: [] },
+    ],
+    orders: [
+      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Maria', total_amount: 218, payment_method: 'cash', status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger', quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)', quantity: 1, unit_price: 39, subtotal: 39, emoji: '🥤' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries', quantity: 1, unit_price: 59, subtotal: 59, emoji: '🍟' }] },
+      { id: 'seed_ord_2', order_number: 'ORD-100002', cashier_name: 'Maria', total_amount: 149, payment_method: 'gcash', gcash_reference: '1234567890', status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo', quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' }] },
+      { id: 'seed_ord_3', order_number: 'ORD-100003', cashier_name: 'Maria', total_amount: 198, payment_method: 'cash', status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger', quantity: 2, unit_price: 99, subtotal: 198, emoji: '🍔' }] },
     ],
     purchaseOrders: [],
     deliveries: [],
-    stockBatches: [],    // FIFO batch tracking per ingredient
     stockLogs: [],
-    inventoryLogs: [],   // Activity log — fills as actions happen
+    inventoryLogs: [
+      { id: 'log_seed_1', createdAt: iso(-5), action: 'delivery_received', ingredientId: 'ing_2', ingredientName: 'Burger Buns', performedBy: 'Admin', details: 'Received 5 packs of Burger Buns (PO-0001)', newValue: '5 packs', severity: 'info' },
+      { id: 'log_seed_2', createdAt: iso(-1), action: 'delivery_received', ingredientId: 'ing_2', ingredientName: 'Burger Buns', performedBy: 'Admin', details: 'Received 2 packs of Burger Buns (PO-0002)', newValue: '2 packs', severity: 'info' },
+    ],
   }
 }
 
@@ -114,6 +211,16 @@ if (!db.inventoryLogs) {
 
 if ((db.ingredients || []).some((item) => item.expiry_date === undefined)) {
   db.ingredients = (db.ingredients || []).map((item) => ({ ...item, expiry_date: item.expiry_date ?? null }))
+  save(db)
+}
+
+if ((db.ingredients || []).some((item) => item.pieces_per_pack === undefined)) {
+  db.ingredients = (db.ingredients || []).map((item) => ({ ...item, pieces_per_pack: item.pieces_per_pack ?? null }))
+  save(db)
+}
+
+if ((db.ingredients || []).some((item) => item.open_pieces === undefined)) {
+  db.ingredients = (db.ingredients || []).map((item) => ({ ...item, open_pieces: item.open_pieces ?? 0 }))
   save(db)
 }
 
@@ -432,6 +539,276 @@ export const api = {
       save(db)
       return Promise.resolve()
     },
+
+    /**
+     * Check stock availability for a cart.
+     * cartItems: [{ menu_item_id, quantity }]
+     * Returns array of shortages: [{ ingredientId, ingredientName, unit, needed, available }]
+     * Empty array = all good.
+     */
+    checkStock(cartItems) {
+      const needed = {} // ingredientId → total pieces/qty needed
+      for (const cartItem of cartItems) {
+        const menuItem = (db.menuItems || []).find((m) => m.id === cartItem.menu_item_id)
+        if (!menuItem || !menuItem.recipe || !menuItem.recipe.length) continue
+        for (const r of menuItem.recipe) {
+          needed[r.ingredientId] = (needed[r.ingredientId] || 0) + r.qty * cartItem.quantity
+        }
+      }
+
+      const shortages = []
+      for (const [ingredientId, qty] of Object.entries(needed)) {
+        const ingredient = (db.ingredients || []).find((x) => x.id === ingredientId)
+        if (!ingredient) continue
+
+        let available
+        let availableLabel
+
+        if (ingredient.pieces_per_pack && ingredient.pieces_per_pack > 1) {
+          // Piece-tracked: available = all packs as pieces + open pieces
+          const piecesInPacks = (ingredient.current_stock || 0) * ingredient.pieces_per_pack
+          available = piecesInPacks + (ingredient.open_pieces || 0)
+          availableLabel = `${available} pieces (${ingredient.current_stock} unopened + ${ingredient.open_pieces || 0} ready)`
+        } else {
+          // Pack-based: compare packs directly
+          available = ingredient.current_stock || 0
+          availableLabel = `${available} ${ingredient.unit || 'pcs'}`
+        }
+
+        if (available < qty) {
+          shortages.push({
+            ingredientId,
+            ingredientName: ingredient.name,
+            unit: ingredient.unit || 'pcs',
+            needed: qty,
+            available,
+            availableLabel,
+          })
+        }
+      }
+      return Promise.resolve(shortages)
+    },
+
+    /**
+     * Atomically place an order AND deduct all recipe ingredients in a single
+     * transaction. Either everything commits or nothing does.
+     *
+     * Why this exists: the previous flow called `api.orders.create()` then
+     * looped through recipes calling `consume()` / `consumePieces()` — each
+     * with its own save(). If one deduction failed mid-loop, the order was
+     * already persisted with partial stock deductions.
+     *
+     * This function:
+     *   1. Builds a complete deduction plan from the cart's recipes.
+     *   2. Validates stock for the ENTIRE plan up front (no shortages allowed).
+     *   3. Mutates in-memory db (order + stock + batches + logs) without saving.
+     *   4. Calls save(db) ONCE at the end — the Electron main process wraps
+     *      that in a SQLite transaction, so it's ACID.
+     *
+     * On any failure, the in-memory db is restored from a snapshot and the
+     * caller gets a rejected promise with a descriptive error.
+     */
+    placeOrderAtomic(orderData) {
+      // ── 1. Snapshot for rollback ─────────────────────────────────
+      const snapshot = {
+        orders: [...(db.orders || [])],
+        ingredients: (db.ingredients || []).map((x) => ({ ...x })),
+        stockBatches: (db.stockBatches || []).map((b) => ({ ...b })),
+        stockLogs: [...(db.stockLogs || [])],
+        inventoryLogs: [...(db.inventoryLogs || [])],
+      }
+
+      const rollback = () => {
+        db.orders = snapshot.orders
+        db.ingredients = snapshot.ingredients
+        db.stockBatches = snapshot.stockBatches
+        db.stockLogs = snapshot.stockLogs
+        db.inventoryLogs = snapshot.inventoryLogs
+      }
+
+      try {
+        // ── 2. Build deduction plan ────────────────────────────────
+        // Aggregate recipe quantities across all cart items.
+        const needed = {} // ingredientId → total qty needed (pieces or packs)
+        for (const cartItem of orderData.items || []) {
+          const menuItem = (db.menuItems || []).find((m) => m.id === cartItem.menu_item_id)
+          if (!menuItem || !menuItem.recipe || !menuItem.recipe.length) continue
+          for (const r of menuItem.recipe) {
+            needed[r.ingredientId] = (needed[r.ingredientId] || 0) + r.qty * cartItem.quantity
+          }
+        }
+
+        // ── 3. Validate entire plan up front ───────────────────────
+        const shortages = []
+        for (const [ingredientId, qty] of Object.entries(needed)) {
+          const ingredient = (db.ingredients || []).find((x) => x.id === ingredientId)
+          if (!ingredient) {
+            shortages.push({ ingredientId, ingredientName: '(missing)', needed: qty, available: 0 })
+            continue
+          }
+          const ppp = ingredient.pieces_per_pack && ingredient.pieces_per_pack > 1
+            ? ingredient.pieces_per_pack
+            : null
+          const available = ppp
+            ? (ingredient.current_stock || 0) * ppp + (ingredient.open_pieces || 0)
+            : (ingredient.current_stock || 0)
+          if (available < qty) {
+            shortages.push({
+              ingredientId,
+              ingredientName: ingredient.name,
+              unit: ingredient.unit || 'pcs',
+              needed: qty,
+              available,
+            })
+          }
+        }
+        if (shortages.length > 0) {
+          const err = new Error('Insufficient stock for one or more ingredients')
+          err.code = 'INSUFFICIENT_STOCK'
+          err.shortages = shortages
+          return Promise.reject(err)
+        }
+
+        // ── 4. Create order row (in memory) ────────────────────────
+        const payment_method = normalizePaymentMethod(orderData?.payment_method)
+        const orderRow = {
+          id: uid(),
+          ...orderData,
+          payment_method,
+          gcash_reference: payment_method === 'gcash' ? normalizeGcashReference(orderData?.gcash_reference) : null,
+        }
+        db.orders = db.orders || []
+        db.orders.push(orderRow)
+
+        // ── 5. Apply deductions (in memory, no save) ───────────────
+        const cashier = orderData.cashier_name || 'Unknown'
+        const deductions = [] // for returning to caller / logging
+        db.stockLogs = db.stockLogs || []
+        db.inventoryLogs = db.inventoryLogs || []
+
+        for (const [ingredientId, qty] of Object.entries(needed)) {
+          const i = db.ingredients.findIndex((x) => x.id === ingredientId)
+          if (i < 0) throw new Error(`Ingredient ${ingredientId} vanished during deduction`)
+          const item = db.ingredients[i]
+          const ppp = item.pieces_per_pack && item.pieces_per_pack > 1
+            ? item.pieces_per_pack
+            : null
+
+          if (ppp) {
+            // Piece-tracked: deduct open_pieces first, then auto-open packs (FIFO)
+            let openPieces = item.open_pieces || 0
+            let currentStock = item.current_stock || 0
+            const prevStock = currentStock
+            const prevOpen = openPieces
+
+            let remaining = qty
+            const fromOpen = Math.min(openPieces, remaining)
+            openPieces -= fromOpen
+            remaining -= fromOpen
+
+            let packsOpened = 0
+            if (remaining > 0) {
+              packsOpened = Math.ceil(remaining / ppp)
+              if (packsOpened > currentStock) {
+                // Shouldn't happen — we validated up front — but guard anyway.
+                throw new Error(`Stock race: ${item.name} no longer has enough packs`)
+              }
+              deductFIFO(ingredientId, packsOpened)
+              currentStock = recalculateStock(ingredientId)
+              openPieces += packsOpened * ppp - remaining
+              if (openPieces < 0) openPieces = 0
+            }
+
+            db.ingredients[i] = { ...item, current_stock: currentStock, open_pieces: openPieces }
+
+            db.stockLogs.push({
+              id: uid(),
+              itemId: ingredientId,
+              itemName: item.name,
+              action: 'pieces_consumed',
+              quantity: -qty,
+              note: `POS order ${orderRow.order_number}`,
+              loggedBy: cashier,
+              orderId: orderRow.id,
+              createdAt: new Date().toISOString(),
+            })
+
+            db.inventoryLogs.push({
+              id: uid(),
+              createdAt: new Date().toISOString(),
+              action: 'pieces_consumed',
+              ingredientId,
+              ingredientName: item.name,
+              performedBy: cashier,
+              previousValue: `${prevStock} packs, ${prevOpen} open pieces`,
+              newValue: `${currentStock} packs, ${openPieces} open pieces`,
+              details: `${cashier} used ${qty} ${item.name} piece${qty !== 1 ? 's' : ''}${packsOpened > 0 ? ` (auto-opened ${packsOpened} pack${packsOpened > 1 ? 's' : ''})` : ''} — POS order ${orderRow.order_number}`,
+              severity: 'info',
+            })
+
+            deductions.push({
+              ingredientId,
+              ingredientName: item.name,
+              piecesConsumed: qty,
+              packsAutoOpened: packsOpened,
+              mode: 'pieces',
+            })
+          } else {
+            // Pack-based: deduct whole packs directly
+            const deduct = Math.max(1, Math.floor(qty))
+            const oldStock = item.current_stock || 0
+            if (deduct > oldStock) {
+              throw new Error(`Stock race: ${item.name} no longer has enough packs`)
+            }
+            deductFIFO(ingredientId, deduct)
+            const newStock = recalculateStock(ingredientId)
+
+            db.ingredients[i] = { ...item, current_stock: newStock }
+
+            db.stockLogs.push({
+              id: uid(),
+              itemId: ingredientId,
+              itemName: item.name,
+              action: 'consumed',
+              quantity: -deduct,
+              note: `Auto-deducted from POS order ${orderRow.order_number}`,
+              loggedBy: cashier,
+              orderId: orderRow.id,
+              createdAt: new Date().toISOString(),
+            })
+
+            db.inventoryLogs.push({
+              id: uid(),
+              createdAt: new Date().toISOString(),
+              action: 'pack_opened',
+              ingredientId,
+              ingredientName: item.name,
+              performedBy: cashier,
+              previousValue: `${oldStock} packs`,
+              newValue: `${newStock} packs`,
+              details: `Auto-deducted ${deduct} ${item.unit || 'pack'}${deduct > 1 ? 's' : ''} of ${item.name} for POS order ${orderRow.order_number}`,
+              severity: 'info',
+            })
+
+            deductions.push({
+              ingredientId,
+              ingredientName: item.name,
+              packsConsumed: deduct,
+              mode: 'packs',
+            })
+          }
+        }
+
+        // ── 6. Single atomic save ──────────────────────────────────
+        save(db)
+
+        return Promise.resolve({ order: orderRow, deductions })
+      } catch (err) {
+        // Any failure → restore db to pre-call state. Nothing hit disk.
+        rollback()
+        return Promise.reject(err)
+      }
+    },
   },
 
   // ── Unified Ingredients ──────────────────────────────────────────────────
@@ -636,17 +1013,31 @@ export const api = {
       return Promise.resolve()
     },
 
-    // Cashier: atomically deducts packs and writes a stock log entry.
+    // Cashier / Production Log: manually open packs — deducts from FIFO batches.
+    // Only adds to open_pieces when pieces_per_pack > 1 (multi-piece packs like buns/cheese).
+    // For single-piece items (ppp = 1, e.g. beef patty), open_pieces is not used —
+    // those items go straight from pack to consumption via consumePieces() or direct deduction.
     consume(itemId, { loggedBy, note, qty = 1 }) {
       db.ingredients = db.ingredients || []
       const i = db.ingredients.findIndex((x) => x.id === itemId)
       if (i < 0) return Promise.reject(new Error('Ingredient not found'))
       const item = db.ingredients[i]
       const oldStock = item.current_stock || 0
+      const oldOpenPieces = item.open_pieces || 0
       const deduct = Math.max(1, Math.floor(qty))
+
+      // Deduct from FIFO batches (unopened packs)
       deductFIFO(itemId, deduct)
       const newStock = recalculateStock(itemId)
-      db.ingredients[i] = { ...item, current_stock: newStock }
+
+      // Only track open_pieces for multi-piece packs (ppp > 1).
+      // For ppp = 1 or null, opening a pack = consuming it directly, no loose pieces.
+      let newOpenPieces = oldOpenPieces
+      if (item.pieces_per_pack && item.pieces_per_pack > 1 && deduct > 0) {
+        newOpenPieces = oldOpenPieces + (deduct * item.pieces_per_pack)
+      }
+
+      db.ingredients[i] = { ...item, current_stock: newStock, open_pieces: newOpenPieces }
       const logEntry = {
         id: uid(),
         itemId,
@@ -661,30 +1052,112 @@ export const api = {
       db.stockLogs.push(logEntry)
       save(db)
 
+      // Build display strings for logging
+      const piecesPerPack = item.pieces_per_pack || 1
+      const oldPiecesTotal = oldStock * piecesPerPack + oldOpenPieces
+      const newPiecesTotal = newStock * piecesPerPack + newOpenPieces
+
+      let previousValueStr = `${oldStock} packs`
+      let newValueStr = `${newStock} packs`
+      let detailStr = `${loggedBy} opened ${deduct} pack${deduct > 1 ? 's' : ''} of ${item.name}`
+
+      if (item.pieces_per_pack && item.pieces_per_pack > 1) {
+        previousValueStr = `${oldStock} unopened + ${oldOpenPieces} open pieces (${oldPiecesTotal} total)`
+        newValueStr = `${newStock} unopened + ${newOpenPieces} open pieces (${newPiecesTotal} total)`
+        detailStr = `${loggedBy} opened ${deduct} pack${deduct > 1 ? 's' : ''} of ${item.name}: ${oldStock} → ${newStock} unopened, ${oldOpenPieces} → ${newOpenPieces} open pieces`
+      }
+
+      if (note) detailStr += ` ⚠️ ${note}`
+
       // Log: pack_opened
       createLog({
         action: 'pack_opened',
         ingredientId: itemId,
         ingredientName: item.name,
         performedBy: loggedBy,
-        previousValue: `${oldStock} ${item.unit}`,
-        newValue: `${newStock} ${item.unit}`,
-        details: `${loggedBy} opened ${deduct} pack${deduct > 1 ? 's' : ''} of ${item.name}${note ? ` ⚠️ ${note}` : ''}`,
+        previousValue: previousValueStr,
+        newValue: newValueStr,
+        details: detailStr,
         severity: 'info',
       })
 
-      // Check low stock after consume
+      // Check low stock after consume (check unopened packs)
       if (newStock <= item.warning_level) {
         createLog({
           action: 'low_stock',
           ingredientId: itemId,
           ingredientName: item.name,
           performedBy: 'System',
-          details: `${item.name} dropped to ${newStock} — below warning level of ${item.warning_level}`,
-          newValue: `${newStock} ${item.unit}`,
+          details: `${item.name} dropped to ${newStock} unopened packs — below warning level of ${item.warning_level}`,
+          newValue: `${newStock} packs`,
           severity: newStock === 0 ? 'critical' : 'warning',
         })
       }
+
+      return Promise.resolve({ item: db.ingredients[i], log: logEntry })
+    },
+
+    // POS auto-deduction: deduct individual pieces from open_pieces first,
+    // then auto-open packs (FIFO) as needed. This is the counterpart to consume() —
+    // consume() manually opens packs (adds to open_pieces), consumePieces() uses them up.
+    // Only used for piece-tracked ingredients (pieces_per_pack > 1).
+    consumePieces(itemId, { loggedBy, note, piecesNeeded }) {
+      db.ingredients = db.ingredients || []
+      const i = db.ingredients.findIndex((x) => x.id === itemId)
+      if (i < 0) return Promise.reject(new Error('Ingredient not found'))
+      const item = db.ingredients[i]
+      const piecesPerPack = item.pieces_per_pack || 1
+      let openPieces = item.open_pieces || 0
+      let currentStock = item.current_stock || 0
+
+      let remaining = piecesNeeded
+
+      // 1. Deduct from open_pieces first
+      const fromOpen = Math.min(openPieces, remaining)
+      openPieces -= fromOpen
+      remaining -= fromOpen
+
+      // 2. Auto-open packs for the rest
+      let packsOpened = 0
+      if (remaining > 0) {
+        packsOpened = Math.ceil(remaining / piecesPerPack)
+        packsOpened = Math.min(packsOpened, currentStock) // can't open more than available
+        const piecesFromPacks = packsOpened * piecesPerPack
+        // Deduct packs from FIFO batches
+        deductFIFO(itemId, packsOpened)
+        currentStock = recalculateStock(itemId)
+        // Add the newly opened pieces, then deduct what was needed
+        openPieces += piecesFromPacks - remaining
+        if (openPieces < 0) openPieces = 0 // safety
+      }
+
+      db.ingredients[i] = { ...item, current_stock: currentStock, open_pieces: openPieces }
+
+      const logEntry = {
+        id: uid(),
+        itemId,
+        itemName: item.name,
+        action: 'pieces_consumed',
+        quantity: -piecesNeeded,
+        note: note || null,
+        loggedBy,
+        createdAt: new Date().toISOString(),
+      }
+      db.stockLogs = db.stockLogs || []
+      db.stockLogs.push(logEntry)
+      save(db)
+
+      const packInfo = packsOpened > 0 ? ` (auto-opened ${packsOpened} pack${packsOpened > 1 ? 's' : ''})` : ''
+      createLog({
+        action: 'pieces_consumed',
+        ingredientId: itemId,
+        ingredientName: item.name,
+        performedBy: loggedBy,
+        previousValue: `${item.current_stock} packs, ${item.open_pieces || 0} open pieces`,
+        newValue: `${currentStock} packs, ${openPieces} open pieces`,
+        details: `${loggedBy} used ${piecesNeeded} ${item.name} piece${piecesNeeded !== 1 ? 's' : ''}${packInfo}${note ? ` — ${note}` : ''}`,
+        severity: 'info',
+      })
 
       return Promise.resolve({ item: db.ingredients[i], log: logEntry })
     },
@@ -1578,9 +2051,29 @@ export const api = {
     async getStorageInfo() {
       if (isElectron) {
         const dbPath = await window.electronAPI.db.getPath()
-        return { type: 'electron', location: dbPath }
+        return { type: 'sqlite', location: dbPath }
       }
       return { type: 'localStorage', location: 'Browser localStorage' }
+    },
+
+    /**
+     * Wipe all data and reload the fresh demo seed. Destructive — use only
+     * during setup/testing. Returns a summary of what got loaded.
+     */
+    resetDemoData() {
+      const fresh = buildFreshSeed()
+      // Replace every in-memory collection (preserving object identity of `db`)
+      for (const key of Object.keys(db)) {
+        delete db[key]
+      }
+      Object.assign(db, fresh)
+      save(db)
+      return Promise.resolve({
+        ingredients: fresh.ingredients.length,
+        stockBatches: fresh.stockBatches.length,
+        menuItems: fresh.menuItems.length,
+        orders: fresh.orders.length,
+      })
     },
   },
 }

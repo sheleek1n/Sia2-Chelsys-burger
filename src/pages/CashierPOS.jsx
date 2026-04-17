@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
 import OrderForm from '@/components/orders/OrderForm'
 import ReceiptModal from '@/components/orders/ReceiptModal'
+import StockShortageModal from '@/components/orders/StockShortageModal'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
@@ -21,6 +22,8 @@ export default function CashierPOS() {
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [lastOrder, setLastOrder] = useState(null)
+  const [stockShortage, setStockShortage] = useState(null) // null or [{ ingredientId, ... }]
+  const [pendingOrder, setPendingOrder] = useState(null)    // order data waiting for restock
 
   const loadData = useCallback(() => {
     setLoading(true)
@@ -50,22 +53,81 @@ export default function CashierPOS() {
     loadData()
   }, [loadData])
 
-  const handleSubmit = async (orderData) => {
+  const placeOrder = async (orderData) => {
     setSubmitting(true)
     try {
-      const createdOrder = await api.orders.create({
+      // Atomic: order creation + all recipe stock deductions commit together,
+      // or nothing commits. No more partial-deduction drift.
+      const { order: createdOrder, deductions } = await api.orders.placeOrderAtomic({
         ...orderData,
         cashier_name: activeName || 'Unknown',
       })
+
       setReceiptOrder(createdOrder)
-      toast.success('Order placed successfully!')
+
+      // Tell the cashier if any new packs were opened to fill this order
+      const autoOpened = deductions.filter((d) => d.packsAutoOpened > 0)
+      if (autoOpened.length > 0) {
+        const summary = autoOpened
+          .map((d) => `${d.ingredientName} (${d.packsAutoOpened} new pack${d.packsAutoOpened > 1 ? 's' : ''})`)
+          .join(', ')
+        toast.success(`Order placed — opened: ${summary}`)
+      } else {
+        toast.success('Order placed successfully!')
+      }
+
       setLastOrder(createdOrder || orderData)
+      setStockShortage(null)
+      setPendingOrder(null)
       loadData()
-    } catch (_err) {
-      toast.error('Failed to place order')
+    } catch (err) {
+      // Surface real failures — no more silent console.warn swallowing
+      if (err?.code === 'INSUFFICIENT_STOCK' && Array.isArray(err.shortages)) {
+        // Stock changed between checkStock() and placement (race condition)
+        setStockShortage(err.shortages)
+        setPendingOrder(orderData)
+        toast.error('Stock changed — please review shortages')
+      } else {
+        console.error('Order placement failed:', err)
+        toast.error(err?.message || 'Failed to place order — no changes saved')
+      }
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleSubmit = async (orderData) => {
+    // Check stock before placing
+    try {
+      const shortages = await api.orders.checkStock(orderData.items)
+      if (shortages.length > 0) {
+        setStockShortage(shortages)
+        setPendingOrder(orderData)
+        return
+      }
+    } catch {
+      // If check fails, proceed anyway (don't block sales)
+    }
+    placeOrder(orderData)
+  }
+
+  const handleShortageRetry = async () => {
+    if (!pendingOrder) return
+    try {
+      const shortages = await api.orders.checkStock(pendingOrder.items)
+      if (shortages.length > 0) {
+        setStockShortage(shortages)
+        return
+      }
+    } catch {
+      // proceed
+    }
+    placeOrder(pendingOrder)
+  }
+
+  const handleShortageCancel = () => {
+    setStockShortage(null)
+    setPendingOrder(null)
   }
 
   if (error) {
@@ -90,6 +152,15 @@ export default function CashierPOS() {
       </div>
 
       <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
+
+      {stockShortage && (
+        <StockShortageModal
+          shortages={stockShortage}
+          cashierName={activeName || 'Cashier'}
+          onRetry={handleShortageRetry}
+          onCancel={handleShortageCancel}
+        />
+      )}
     </div>
   )
 }

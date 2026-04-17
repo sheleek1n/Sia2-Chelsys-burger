@@ -3,6 +3,7 @@ import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { toast } from 'sonner'
 import { UserCog, Plus, Pencil, Trash2, Eye, EyeOff, X, Download, Upload, AlertTriangle } from 'lucide-react'
+import DeleteConfirmModal from '@/components/shared/DeleteConfirmModal'
 import { format } from 'date-fns'
 
 export default function Settings() {
@@ -216,11 +217,40 @@ export default function Settings() {
           <div className="mt-4 flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <p className="text-xs text-amber-800">
-              {storageInfo?.type === 'electron'
-                ? <><strong>Storage:</strong> Data is saved to a local file on your computer. Safe from browser cache clears.<br /><span className="text-amber-600 font-mono text-[10px]">{storageInfo.location}</span></>
-                : <><strong>Tip:</strong> Download a backup regularly, especially before clearing browser data. All your data lives in this browser — if the cache is cleared, everything is lost.</>
+              {storageInfo?.type === 'sqlite'
+                ? <><strong>Storage:</strong> SQLite database — crash-safe, ACID-compliant local storage.<br /><span className="text-amber-600 font-mono text-[10px]">{storageInfo.location}</span></>
+                : storageInfo?.type === 'electron'
+                  ? <><strong>Storage:</strong> Data is saved to a local file on your computer. Safe from browser cache clears.<br /><span className="text-amber-600 font-mono text-[10px]">{storageInfo.location}</span></>
+                  : <><strong>Tip:</strong> Download a backup regularly, especially before clearing browser data. All your data lives in this browser — if the cache is cleared, everything is lost.</>
               }
             </p>
+          </div>
+
+          {/* ── Reset to Demo Data ─────────────────────────────────── */}
+          <div className="mt-4 border-2 border-red-200 bg-red-50/50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="w-4 h-4 text-red-600" />
+              <h3 className="font-semibold text-sm text-red-800">Reset to Demo Data</h3>
+            </div>
+            <p className="text-xs text-red-700 mb-3">
+              Wipes <strong>all</strong> current data (ingredients, orders, batches, logs) and reloads the fresh demo seed. Use this for testing the system. <strong>This cannot be undone — export a backup first if you need it.</strong>
+            </p>
+            <button
+              onClick={async () => {
+                if (!window.confirm('Wipe ALL current data and load fresh demo seed?\n\nThis is irreversible. Make sure you have a backup.')) return
+                if (!window.confirm('Final confirmation — proceed with reset?')) return
+                try {
+                  const summary = await api.backup.resetDemoData()
+                  toast.success(`Demo data loaded: ${summary.ingredients} items, ${summary.stockBatches} batches, ${summary.menuItems} menu items — reloading...`)
+                  setTimeout(() => window.location.reload(), 1200)
+                } catch (err) {
+                  toast.error(err?.message || 'Reset failed')
+                }
+              }}
+              className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg"
+            >
+              Reset &amp; Load Demo Data
+            </button>
           </div>
         </div>
       </div>
@@ -234,22 +264,12 @@ export default function Settings() {
       )}
 
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-          <div className="bg-white rounded-lg shadow-xl w-[95vw] max-w-sm p-6 mx-4">
-            <h3 className="font-semibold text-gray-900 mb-2">Delete Account</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Remove <strong>{deleteConfirm.full_name}</strong> ({deleteConfirm.username})? This cannot be undone.
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setDeleteConfirm(null)} className="px-4 py-2 text-sm rounded-lg border hover:bg-gray-50">
-                Cancel
-              </button>
-              <button type="button" onClick={() => handleDelete(deleteConfirm)} className="px-4 py-2 text-sm rounded-lg bg-red-600 hover:bg-red-700 text-white">
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteConfirmModal
+          title="Delete Account"
+          message={<>Remove <strong>{deleteConfirm.full_name}</strong> ({deleteConfirm.username})? This account will be permanently removed.</>}
+          onConfirm={() => handleDelete(deleteConfirm)}
+          onCancel={() => setDeleteConfirm(null)}
+        />
       )}
     </div>
   )
