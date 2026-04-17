@@ -25,51 +25,54 @@ npm install
 npm run electron:dev
 ```
 
-> **Browser-only preview:** `npm run dev` still works at `http://localhost:5173`, but the SQLite layer is Electron-only — the browser build falls back to in-memory seed data.
+> **Browser-only preview:** `npm run dev` still works at `http://localhost:5173`, but the SQLite layer is Electron-only — the browser build falls back to in-memory seed data with no persistence.
 
 ---
 
 ## Available Scripts
 
-| Command                  | Description                                                          |
-| ------------------------ | -------------------------------------------------------------------- |
-| `npm run dev`            | Vite dev server in the browser only (no SQLite persistence)          |
-| `npm run electron:dev`   | Launch the desktop app against the Vite dev server (hot reload)      |
-| `npm run build`          | Build the renderer into `dist/`                                      |
-| `npm start`              | Run Electron against the built `dist/` bundle                        |
-| `npm run electron:build` | `npm run build` + launch Electron against the fresh build            |
-| `npm run preview`        | Preview the production build in the browser                          |
-| `npm run lint`           | Run ESLint                                                           |
+| Command | Description |
+|---|---|
+| `npm run dev` | Vite dev server in the browser only (no SQLite persistence) |
+| `npm run electron:dev` | Launch the desktop app against the Vite dev server (hot reload) |
+| `npm run build` | Build the renderer into `dist/` |
+| `npm start` | Run Electron against the built `dist/` bundle |
+| `npm run electron:build` | `npm run build` + launch Electron against the fresh build |
+| `npm run preview` | Preview the production build in the browser |
+| `npm run lint` | Run ESLint |
+
+> **postinstall** runs `electron-rebuild` automatically for `better-sqlite3` after `npm install`.
 
 ---
 
 ## Default Accounts
 
-These are the seed accounts on first run. Change passwords via the **Accounts** page after logging in as admin.
+| Role | Username | Password | Notes |
+|---|---|---|---|
+| Admin | `admin` | `admin123` | Session persists on restart |
+| Cashier | `user` | `user123` | Session resets on close (by design) |
 
-| Role    | Username | Password |
-| ------- | -------- | -------- |
-| Admin   | admin    | admin123 |
-| Cashier | user     | user123  |
+> Change passwords via the **Settings** page after logging in as admin.
 
 ---
 
 ## Tech Stack
 
-| Layer            | Technology              | Purpose                                           |
-| ---------------- | ----------------------- | ------------------------------------------------- |
-| Desktop Shell    | Electron 41             | Native Windows app, IPC bridge to SQLite          |
-| Data Storage     | better-sqlite3          | Local SQLite DB stored in the OS `userData` folder |
-| UI Framework     | React 19                | Component-based user interface                    |
-| Styling          | TailwindCSS 4           | Utility-first CSS                                 |
-| Icons            | Lucide React            | Icon library                                      |
-| Charts           | Recharts                | Sales and revenue charts on the dashboard         |
-| State Management | Zustand                 | Cashier session store                             |
-| Routing          | React Router DOM 7      | HashRouter (required for Electron `file://`)     |
-| Notifications    | Sonner                  | Toast messages for success/error feedback         |
-| Date Utilities   | date-fns                | Date formatting and comparisons                   |
-| Build Tool       | Vite 7                  | Dev server, HMR, bundling                         |
-| Linting          | ESLint 9                | Code quality and consistency                      |
+| Layer | Technology | Purpose |
+|---|---|---|
+| Desktop Shell | Electron 41 | Native Windows app, IPC bridge to SQLite |
+| Database | better-sqlite3 | Local SQLite DB in OS `userData` folder |
+| Frontend | React 19 | Component-based UI |
+| Styling | TailwindCSS 4 | Utility-first CSS |
+| UI Primitives | Radix UI | Accessible headless components |
+| Icons | Lucide React | Icon library |
+| Charts | Recharts | Sales and revenue charts |
+| State | Zustand | Cashier session store |
+| Routing | React Router DOM 7 | HashRouter (required for Electron `file://`) |
+| Toasts | Sonner | Success/error feedback |
+| Dates | date-fns | Date formatting |
+| Build Tool | Vite 7 | Dev server, HMR, bundling |
+| Linting | ESLint 9 | Code quality |
 
 ---
 
@@ -77,51 +80,36 @@ These are the seed accounts on first run. Change passwords via the **Accounts** 
 
 ```
 Electron Desktop App
- |
- |-- Main Process (electron/main.cjs)
- |    |-- Creates the BrowserWindow
- |    |-- Loads Vite dev server in dev (--dev flag) or dist/index.html in prod
- |    |-- IPC handlers:  db:load, db:save, db:getPath
- |
- |-- Preload (electron/preload.cjs)
- |    |-- Exposes window.electronAPI.db to the renderer via contextBridge
- |
- |-- Database (electron/database.cjs)
- |    |-- better-sqlite3 with WAL mode
- |    |-- Auto-migrates from legacy chelsys-burger-data.json if present
- |    |-- DB file: <userData>/chelsys-burger.db
- |
- |-- Renderer (React App)
-      |-- Pages
-      |    |-- Dashboard .......... Sales KPIs, charts, alerts (admin only)
-      |    |-- CashierPOS ......... Order-taking screen (cashier + admin)
-      |    |-- Orders ............. Order history, void/refund management
-      |    |-- ProductionLog ...... "Open Pack" logging with FIFO batch view
-      |    |-- Products ........... Menu items + inventory management (admin only)
-      |    |-- SupplyChain ........ Purchase orders + deliveries (admin only)
-      |    |-- Settings ........... User account management (admin only)
-      |
-      |-- src/api/index.js        ** Single API layer **
-           Every read/write goes through this file. It calls
-           window.electronAPI.db when running in Electron, and falls
-           back to seed data in the browser.
+├── Main Process (electron/main.cjs)
+│   ├── Creates BrowserWindow
+│   ├── Loads Vite dev server in dev (--dev flag) or dist/index.html in prod
+│   └── IPC handlers: db:load, db:save, db:getPath
+│
+├── Preload (electron/preload.cjs)
+│   └── Exposes window.electronAPI.db to renderer via contextBridge
+│
+├── Database (electron/database.cjs)
+│   ├── better-sqlite3, WAL mode, ACID transactions
+│   ├── Auto-migrates from legacy chelsys-burger-data.json on first run
+│   └── DB file: <userData>/chelsys-burger.db
+│
+└── Renderer (React App)
+    └── src/api/index.js ← Single API layer — all reads/writes go here
 ```
 
 ### Key Design Decisions
 
-1. **POS and inventory remain decoupled by default.** Selling a burger does not blindly auto-deduct ingredients — but if a menu item has a **recipe**, the POS does call the stock consume API per recipe item after order creation. Staff can still open packs manually via the Production Log.
+1. **Single API layer.** `src/api/index.js` is the only module that reads/writes the persistent store. Components never touch the db directly.
 
-2. **Piece-level + batch-level tracking.** Ingredients support an optional `pieces_per_pack` value (e.g. 24 buns per pack). Incoming stock is recorded as **batches** with received/expiry dates, supplier, and PO number. Opening a pack consumes from the oldest batch first (FIFO) and is shown in the confirm modal as "Using stock from Shipment #xxxx".
+2. **Three ingredient types.** Piece-tracked (buns, cheese → auto-deducts pieces per order), pack-based countable (beef patty → auto-deducts whole packs), and bulk/manual-only (sauces, fries → Production Log only, never POS-linked).
 
-3. **One API file for everything.** `src/api/index.js` is the only module that reads/writes the persistent store. The Electron DB swap was a single-file change.
+3. **Atomic order placement.** `placeOrderAtomic()` validates stock, applies order + all deductions in memory, then saves once as a single ACID SQLite transaction. Snapshot rollback on any failure.
 
-4. **HashRouter, not BrowserRouter.** Required because Electron loads the renderer from `file://`, and BrowserRouter assumes server-side URL routing.
+4. **FIFO batch tracking.** Every delivery creates a batch row. Consumption depletes the oldest batch first. UI shows "Using stock from Shipment #XXXX."
 
-5. **Unified login, two roles.**
-   - Admin: persistent session (survives app restart), access to all pages
-   - Cashier: session-only login, limited to POS, Orders, and Production Log
+5. **HashRouter, not BrowserRouter.** Required because Electron loads the renderer from `file://`.
 
-6. **Local timezone dates.** All date recording uses the device's local time, not UTC — Philippines business-day boundaries are correct.
+6. **Local timezone dates.** All dates use the device's local time — Philippines business-day boundaries are correct.
 
 ---
 
@@ -129,71 +117,81 @@ Electron Desktop App
 
 ```
 electron/
-  main.cjs ................. Electron main process + IPC
+  main.cjs ................. Electron main process + IPC + dev/prod detection
   preload.cjs .............. contextBridge exposing electronAPI.db
   database.cjs ............. better-sqlite3 schema, load/save, JSON migration
 
 src/
   api/
-    index.js ............... API layer (calls electronAPI.db, business logic)
+    index.js ............... ← ALL data operations go here
   components/
     dashboard/ ............. Dashboard widgets
     inventory/ ............. IngredientForm, category manager
-    orders/ ................ OrderForm (POS cart + checkout), ReceiptModal
-    shared/ ................ Reusable components (PageHeader, MenuItemImage)
-    ui/ .................... Base UI components (button, input, dialog, etc.)
+    orders/ ................ OrderForm (POS cart), StockShortageModal, ReceiptModal
+    shared/ ................ PageHeader, DeleteConfirmModal
+    ui/ .................... Base UI (button, input, dialog, etc.)
   lib/
     AuthContext.jsx ........ Admin session provider
-    useCashierStore.js ..... Zustand store for cashier session
+    useCashierStore.js ..... Zustand cashier session store
   pages/
-    Dashboard.jsx .......... Sales summary + inventory alerts
-    CashierPOS.jsx ......... Order-taking interface (auto stock deduction via recipes)
-    Orders.jsx ............. Order history with filters and void/refund
-    ProductionLog.jsx ...... Pack logging with FIFO batch details + piece preview
-    Products.jsx ........... Menu and inventory management
-    SupplyChain.jsx ........ Purchase orders and deliveries
-    Settings.jsx ........... Admin account management
-    CashierEntry.jsx ....... Cashier quick sign-in
+    Dashboard.jsx .......... Sales KPIs, charts, alerts (admin only)
+    CashierPOS.jsx ......... Order-taking, cart, receipt, shortage modal
+    Orders.jsx ............. Order history, void management
+    ProductionLog.jsx ...... "Open Pack" logging with FIFO batch view
+    Products.jsx ........... Menu + inventory + recipes + activity log
+    SupplyChain.jsx ........ Purchase orders + deliveries
+    Settings.jsx ........... Admin accounts + backup + demo reset
+    CashierEntry.jsx ....... Unified login screen
   utils/
     menuItemIcons.js ....... Emoji mappings for menu categories
   App.jsx .................. HashRouter + role-based auth wrapper
-  Layout.jsx ............... Sidebar navigation
+  Layout.jsx ............... Sidebar navigation (role-aware)
   pages.config.js .......... Page registry
-  index.css ................ TailwindCSS + custom styles
 ```
-
----
-
-## Recent Changes
-
-- **Piece-level stock tracking** — ingredients have an optional `pieces_per_pack` field; Production Log shows both packs and pieces in the confirm modal, toast, and Today's Summary.
-- **FIFO batch visibility** — Production Log cards can expand to show each active shipment (received date, expiry, remaining qty). The Confirm Modal highlights the exact batch a pack will be deducted from.
-- **Auto stock deduction from POS** — placing an order with recipes attached now consumes ingredients automatically via `api.ingredients.consume()` with an `"Auto-deducted from POS order ..."` log note.
-- **Tightened Production Log UI** — batch rows collapsed from 4 stacked lines to 1, redundant legend removed, confirm-modal stock preview condensed to a single row.
-- **Fixed `npm run electron:dev`** — Vite now binds to `127.0.0.1` so `wait-on` resolves on Windows, and Electron picks up a `--dev` CLI flag to load the dev server instead of stale `dist/`.
 
 ---
 
 ## Troubleshooting
 
-**`npm run electron:dev` shows Vite ready but no window opens**
-Resolved in the current scripts. If it recurs, check that port 5173 is free and that Vite is binding to `127.0.0.1` (the script passes `--host 127.0.0.1`).
-
-**`better-sqlite3` module version mismatch**
-Run `npm rebuild better-sqlite3` or `npx electron-rebuild -f -w better-sqlite3`. The `postinstall` hook runs this automatically after `npm install`.
-
-**Where is the database file?**
-`electron/database.cjs` stores it in Electron's `userData` folder. The exact path is printed by the `db:getPath` IPC call, or visible under:
-`C:\Users\<you>\AppData\Roaming\chelsys-burger\chelsys-burger.db`
+| Problem | Fix |
+|---|---|
+| `electron:dev` shows Vite ready but no window | Check port 5173 is free. Script passes `--host 127.0.0.1` to fix IPv6 binding issue on Windows. |
+| `NODE_MODULE_VERSION mismatch` | Run `npm rebuild better-sqlite3` or `npx electron-rebuild -f -w better-sqlite3` |
+| `node test.js` fails with ABI error | Expected — better-sqlite3 is compiled for Electron's ABI, not system Node. Always test inside Electron. |
+| DB file not found | Auto-created on first run at: `C:\Users\<you>\AppData\Roaming\chelsys-burger\chelsys-burger.db` |
+| Old data from localStorage | Run **Settings → Reset & Load Demo Data** to wipe and reseed |
+| Build chunk >500kB warning | Known and acceptable — no code-splitting yet |
 
 ---
 
-## Future Roadmap
+## Recent Changes
 
-- [x] Wrap in Electron for a standalone desktop app
-- [x] Migrate from localStorage to SQLite (via better-sqlite3)
-- [x] Piece-level stock tracking and FIFO batch visibility
+- **Fixed `npm run electron:dev`** — Vite now binds to `127.0.0.1` so `wait-on` resolves on Windows; Electron picks up a `--dev` CLI flag to load the dev server instead of stale `dist/`.
+- **Piece-level stock tracking** — ingredients have an optional `pieces_per_pack` field; POS auto-deducts pieces and auto-opens packs as needed via FIFO.
+- **FIFO batch visibility** — Production Log and inventory table can expand to show each active shipment with received date, expiry, and remaining qty.
+- **Atomic POS order placement** — `placeOrderAtomic()` validates and applies all stock mutations in a single SQLite transaction with snapshot rollback.
+- **Auto stock deduction from POS** — placing an order with recipes attached now consumes countable ingredients automatically.
+- **Tightened Production Log UI** — batch rows condensed, redundant legend removed, stock preview simplified.
+- **SQLite migration** — fully migrated from localStorage/JSON to `better-sqlite3` with auto-migration from legacy JSON file.
+
+---
+
+## Roadmap
+
+- [x] Electron desktop wrap
+- [x] SQLite migration (better-sqlite3, WAL, ACID)
+- [x] Piece-level stock tracking + FIFO batch visibility
 - [x] Auto stock deduction on POS orders via recipes
-- [ ] Package a signed `.exe` installer with `electron-builder`
-- [ ] Receipt printer and cash drawer integration
+- [x] Atomic order placement with snapshot rollback
+- [x] GCash payment with reference number
+- [x] Ingredient categories + Production Log grouping
+- [x] Expiry date tracking per batch
+- [x] Activity log (all inventory changes)
+- [x] Supply chain (POs + deliveries + partial delivery completion)
+- [x] Backup export/import + demo data reset
+- [ ] Signed `.exe` installer via electron-builder
+- [ ] Receipt printer + cash drawer integration
+- [ ] First-launch setup wizard (admin password)
+- [ ] Individual cashier accounts per person
 - [ ] PDF report exports
+- [ ] Order void → stock reversal
