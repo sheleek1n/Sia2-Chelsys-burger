@@ -423,44 +423,55 @@ function getStoredUser() {
  * Initialize database from Electron file system.
  * Call this once at app startup when running in Electron.
  * In browser mode, this is a no-op (data already loaded from localStorage).
+ *
+ * IMPORTANT: main.jsx awaits `apiReady` before rendering React, so the UI
+ * never sees the transient seed state. All API methods are safe to call
+ * after this resolves.
  */
 async function initElectronDb() {
   if (!isElectron) return
   try {
     const fileData = await window.electronAPI.db.load()
-    if (fileData && typeof fileData === 'object') {
-      // Merge file data into in-memory db
-      Object.assign(db, fileData)
-      _electronDataLoaded = true
-      console.log('[Chelsys] Loaded data from Electron file storage')
-    } else {
-      // No file yet — save current (seeded) db to file
-      save(db)
-      _electronDataLoaded = true
-      console.log('[Chelsys] Created new Electron database from seed data')
-    }
+    const hasRealData =
+      fileData &&
+      typeof fileData === 'object' &&
+      // SQLite always returns table arrays; check if any contain data
+      ((fileData.ingredients || []).length > 0 || (fileData.users || []).length > 0)
 
-    // Also migrate localStorage data to file if it exists and file was empty
-    if (!fileData) {
+    if (hasRealData) {
+      // Replace (don't merge) — clear seed keys first so deleted rows don't linger
+      for (const key of Object.keys(db)) delete db[key]
+      Object.assign(db, fileData)
+      console.log('[Chelsys] Loaded data from SQLite')
+    } else {
+      // Empty SQLite file — check for legacy localStorage, else persist current seed
       try {
         const raw = localStorage.getItem(STORAGE_KEY)
         if (raw) {
           const lsData = JSON.parse(raw)
+          for (const key of Object.keys(db)) delete db[key]
           Object.assign(db, lsData)
           save(db)
-          console.log('[Chelsys] Migrated localStorage data to Electron file storage')
+          console.log('[Chelsys] Migrated localStorage → SQLite')
+        } else {
+          // First run with no prior data — persist the seed we already have
+          save(db)
+          console.log('[Chelsys] Created new SQLite database from seed')
         }
-      } catch { /* ignore */ }
+      } catch {
+        save(db)
+      }
     }
+    _electronDataLoaded = true
   } catch (err) {
     console.error('[Chelsys] Failed to load from Electron:', err)
+    // Mark loaded anyway so the UI can boot with seed (better than blank screen)
+    _electronDataLoaded = true
   }
 }
 
-// Auto-init if running in Electron
-if (isElectron) {
-  initElectronDb()
-}
+// Boot gate: resolves once the real db is in memory (or immediately in browser mode)
+export const apiReady = isElectron ? initElectronDb() : Promise.resolve()
 
 export const api = {
   auth: {

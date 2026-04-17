@@ -9,7 +9,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"vite --port 5173\" \"wait-on http://localhost:5173 && electron .\"",
+    "start": "electron .",
+    "electron:dev": "concurrently -k \"vite --port 5173 --strictPort --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron . --dev\"",
+    "electron:build": "npm run build && electron .",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {

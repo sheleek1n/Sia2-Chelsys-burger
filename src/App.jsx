@@ -1,4 +1,6 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+// HashRouter (not BrowserRouter) so routes work under Electron's file:// protocol.
+// BrowserRouter relies on server-side URL routing which isn't available for local file loads.
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from '@/components/ui/toaster'
 import { AuthProvider, useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'

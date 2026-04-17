@@ -59,14 +59,9 @@ function ItemCard({ item, batches, onOpenPack }) {
         <div className="mt-auto flex items-start justify-between gap-1">
           <div className="text-sm font-semibold text-gray-800 leading-tight">
             <div>{(item.current_stock ?? 0)} unopened packs</div>
-            {item.pieces_per_pack && (
-              <div className={`text-xs mt-0.5 ${(item.open_pieces || 0) > 0 ? 'text-blue-600 font-medium' : 'text-gray-400 font-normal'}`}>
-                {item.open_pieces || 0} open pieces
-              </div>
-            )}
-            {item.pieces_per_pack && (
-              <div className="text-[10px] text-gray-400 font-normal mt-0.5">
-                {(item.current_stock ?? 0) * item.pieces_per_pack + (item.open_pieces || 0)} total pcs
+            {item.pieces_per_pack && (item.open_pieces || 0) > 0 && (
+              <div className="text-xs mt-0.5 text-blue-600 font-medium">
+                {item.open_pieces} open pieces
               </div>
             )}
           </div>
@@ -90,18 +85,22 @@ function ItemCard({ item, batches, onOpenPack }) {
         {showBatches && activeBatches.length > 0 && (
           <div className="mt-1 pt-2 border-t border-gray-200 space-y-1">
             {activeBatches.map((batch, idx) => (
-              <div key={batch.id} className="text-[10px] text-gray-600 p-1.5 bg-slate-50 rounded">
-                <div className="flex justify-between items-start gap-1">
-                  <span className="font-semibold">{idx === 0 ? 'USING NOW' : `#${idx + 1}`}</span>
-                  <span className="text-right">
-                    {batch.quantity} / {batch.originalQuantity} left
-                  </span>
-                </div>
-                <div className="text-[9px] text-gray-500 mt-0.5">
-                  Rcv: {formatDate(batch.receivedAt)} {batch.expiryDate && `• Exp: ${formatDate(batch.expiryDate)}`}
-                </div>
-                {batch.supplier && <div className="text-[9px] text-gray-500">{batch.supplier}</div>}
-                {batch.poNumber && <div className="text-[9px] text-gray-400">{batch.poNumber}</div>}
+              <div
+                key={batch.id}
+                className={`text-[10px] px-1.5 py-1 rounded flex items-center justify-between gap-2 ${
+                  idx === 0 ? 'bg-blue-50 text-blue-800' : 'bg-slate-50 text-gray-600'
+                }`}
+              >
+                <span className="font-semibold shrink-0">
+                  {idx === 0 ? 'NOW' : `#${idx + 1}`}
+                </span>
+                <span className="text-[9px] text-gray-500 truncate flex-1 text-center">
+                  {formatDate(batch.receivedAt)}
+                  {batch.expiryDate && ` → ${formatDate(batch.expiryDate)}`}
+                </span>
+                <span className="font-medium shrink-0">
+                  {batch.quantity}/{batch.originalQuantity}
+                </span>
               </div>
             ))}
           </div>
@@ -137,8 +136,6 @@ function ConfirmModal({ item, batches, onCancel, onConfirm, loading }) {
   const nextStock = Math.max(0, (item.current_stock ?? 0) - safeQty)
   const fifoBatch = getFIFOBatch(item.id, batches)
   const piecesPerPack = item.pieces_per_pack || null
-  const oldOpenPieces = item.open_pieces || 0
-  const newOpenPieces = oldOpenPieces + (safeQty * (piecesPerPack || 0))
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
@@ -189,21 +186,15 @@ function ConfirmModal({ item, batches, onCancel, onConfirm, loading }) {
           </div>
 
           {/* Stock preview */}
-          <div className="text-sm text-gray-700 space-y-1">
-            <p>
-              <span className="font-semibold">Unopened Packs:</span> {item.current_stock} → {nextStock}
-            </p>
+          <div className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 flex items-center justify-between">
+            <span>
+              <span className="font-semibold">{item.current_stock} → {nextStock}</span>
+              <span className="text-xs text-gray-500 ml-1">packs</span>
+            </span>
             {piecesPerPack && (
-              <>
-                <p>
-                  <span className="font-semibold">Open Pieces:</span> {oldOpenPieces} → {newOpenPieces}
-                  <span className="text-xs text-gray-500 ml-1">({piecesPerPack} per pack)</span>
-                </p>
-                <p className="text-xs text-gray-500 pt-1 border-t border-gray-200">
-                  Total: {nextStock * piecesPerPack + newOpenPieces} pieces
-                  ({nextStock} unopened × {piecesPerPack} + {newOpenPieces} open)
-                </p>
-              </>
+              <span className="text-xs text-blue-700">
+                +{safeQty * piecesPerPack} pieces ({piecesPerPack}/pack)
+              </span>
             )}
           </div>
 
@@ -403,15 +394,10 @@ export default function ProductionLog() {
         </div>
       )}
 
-      {/* ── Legend ── */}
-      <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> OK</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Low</span>
-        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Out of Stock</span>
-        <span className="flex items-center gap-1 ml-auto">
-          <AlertTriangle className="w-3 h-3 text-amber-500" />
-          Always log before opening a pack
-        </span>
+      {/* ── Reminder ── */}
+      <div className="flex items-center gap-1 text-xs text-amber-700">
+        <AlertTriangle className="w-3 h-3" />
+        Always log before opening a pack
       </div>
 
       <div className="overflow-x-auto">

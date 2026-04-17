@@ -8,6 +8,9 @@ const __dirname = path.dirname(__filename)
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Relative asset paths so the built UI works under Electron's file:// protocol.
+  // Without this, asset URLs like "/assets/index.js" resolve to the drive root instead of the dist folder.
+  base: './',
   plugins: [react()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
