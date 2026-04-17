@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { format } from 'date-fns'
 import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { useCashierStore } from '@/lib/useCashierStore'
@@ -8,7 +7,6 @@ import ReceiptModal from '@/components/orders/ReceiptModal'
 import StockShortageModal from '@/components/orders/StockShortageModal'
 import PageHeader from '@/components/shared/PageHeader'
 import { toast } from 'sonner'
-import { getMenuItemIcon } from '@/utils/menuItemIcons'
 
 export default function CashierPOS() {
   const { user } = useAuth()
@@ -16,38 +14,27 @@ export default function CashierPOS() {
 
   const activeName = user ? user.full_name : displayName
   const [menuItems, setMenuItems] = useState([])
-  const [recentOrders, setRecentOrders] = useState([])
   const [receiptOrder, setReceiptOrder] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [lastOrder, setLastOrder] = useState(null)
   const [stockShortage, setStockShortage] = useState(null) // null or [{ ingredientId, ... }]
   const [pendingOrder, setPendingOrder] = useState(null)    // order data waiting for restock
 
   const loadData = useCallback(() => {
     setLoading(true)
     setError(null)
-    const today = format(new Date(), 'yyyy-MM-dd')
     Promise.all([
       api.menuItems.list(),
       api.orders.list()
     ]).then(([m, o]) => {
       setMenuItems(m)
-
-      // Filter for today's orders by this cashier
-      const myRecentOrders = o.filter(
-        order => order.order_date === today &&
-          order.cashier_name === activeName &&
-          order.status === 'completed'
-      )
-      setRecentOrders(myRecentOrders)
     }).catch(() => {
       toast.error('Failed to load data')
     }).finally(() => {
       setLoading(false)
     })
-  }, [activeName])
+  }, [])
 
   useEffect(() => {
     loadData()
@@ -76,7 +63,6 @@ export default function CashierPOS() {
         toast.success('Order placed successfully!')
       }
 
-      setLastOrder(createdOrder || orderData)
       setStockShortage(null)
       setPendingOrder(null)
       loadData()

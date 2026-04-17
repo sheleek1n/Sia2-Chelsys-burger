@@ -343,7 +343,7 @@ function EODModal({ orders, todayOrders, today, inventoryAlerts, onClose }) {
         @media print { button { display: none; } }
       </style></head><body>
       ${printEl.innerHTML}
-      <script>window.print(); window.close();<\/script>
+      <script>window.print(); window.close();</script>
       </body></html>
     `)
     printWindow.document.close()

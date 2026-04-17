@@ -1360,7 +1360,7 @@ export const api = {
       }
       db.users.push(user)
       save(db)
-      const { password, ...safe } = user
+      const { password: _password, ...safe } = user
       return Promise.resolve(safe)
     },
     update(id, data) {
@@ -1375,7 +1375,7 @@ export const api = {
       if (data.password) db.users[i].password = data.password.trim()
       if (data.role) db.users[i].role = data.role
       save(db)
-      const { password, ...safe } = db.users[i]
+      const { password: _password, ...safe } = db.users[i]
       return Promise.resolve(safe)
     },
     delete(id) {

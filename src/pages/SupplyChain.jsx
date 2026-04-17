@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { Plus, PackageCheck, AlertCircle, ShoppingBag, Eye, X, CheckCircle2 } from 'lucide-react'
@@ -842,9 +842,9 @@ export default function SupplyChain() {
   const [manageSuppliersOpen, setManageSuppliersOpen] = useState(false)
   const [savedSuppliers, setSavedSuppliers] = useState([])
 
-  const loadSuppliers = () => api.suppliers.list().then(setSavedSuppliers)
+  const loadSuppliers = useCallback(() => api.suppliers.list().then(setSavedSuppliers), [])
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true)
     try {
       const [ings, p, d] = await Promise.all([
@@ -861,9 +861,9 @@ export default function SupplyChain() {
       setLoading(false)
       toast.error('Failed to load data')
     }
-  }
+  }, [loadSuppliers])
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { loadData() }, [loadData])
 
   // Action helpers
   const handleOrderStatusUpdate = async (id, status) => {
