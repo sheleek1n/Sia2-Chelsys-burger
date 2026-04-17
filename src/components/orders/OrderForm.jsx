@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import { CATEGORY_ICONS, getMenuItemIcon } from '@/utils/menuItemIcons'
+import { getMenuItemIcon } from '@/utils/menuItemIcons'
 import MenuItemImage from '@/components/shared/MenuItemImage'
 
 const PAYMENT_OPTIONS = [
@@ -26,6 +26,30 @@ const CATEGORY_LABELS = {
   other: 'Other',
 }
 
+const CATEGORY_ORDER = ['burger', 'chicken', 'sides', 'drinks', 'combo', 'dessert', 'snacks', 'other']
+
+const CATEGORY_BADGE_STYLES = {
+  burger: 'bg-rose-100 text-rose-700',
+  chicken: 'bg-amber-100 text-amber-700',
+  sides: 'bg-orange-100 text-orange-700',
+  drinks: 'bg-sky-100 text-sky-700',
+  combo: 'bg-violet-100 text-violet-700',
+  dessert: 'bg-pink-100 text-pink-700',
+  snacks: 'bg-lime-100 text-lime-700',
+  other: 'bg-slate-100 text-slate-700',
+}
+
+const CATEGORY_ACCENT_STYLES = {
+  burger: 'bg-rose-300/80',
+  chicken: 'bg-amber-300/80',
+  sides: 'bg-orange-300/80',
+  drinks: 'bg-sky-300/80',
+  combo: 'bg-violet-300/80',
+  dessert: 'bg-pink-300/80',
+  snacks: 'bg-lime-300/80',
+  other: 'bg-slate-300/80',
+}
+
 export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   const [cart, setCart] = useState([])
   const [paymentMethod, setPaymentMethod] = useState('cash')
@@ -36,19 +60,16 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   const [notes, setNotes] = useState('')
   const gridTopRef = useRef(null)
 
-  const availableItems = useMemo(
-    () => menuItems.filter((item) => item.is_available !== false),
-    [menuItems]
-  )
+  const visibleItems = useMemo(() => menuItems, [menuItems])
 
   const categories = useMemo(() => {
     const preferredOrder = ['burger', 'chicken', 'sides', 'drinks', 'combo', 'dessert', 'snacks', 'other']
-    const available = [...new Set(availableItems.map((m) => m.category).filter(Boolean).map((cat) => cat.toLowerCase()))]
+    const available = [...new Set(visibleItems.map((m) => m.category).filter(Boolean).map((cat) => cat.toLowerCase()))]
     return [
       ...preferredOrder.filter((cat) => available.includes(cat)),
       ...available.filter((cat) => !preferredOrder.includes(cat)),
     ]
-  }, [availableItems])
+  }, [visibleItems])
 
   useEffect(() => {
     if (activeCategory !== 'all' && !categories.includes(activeCategory)) {
@@ -63,11 +84,36 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   }, [activeCategory])
 
   const filteredItems = useMemo(() => {
-    if (activeCategory === 'all') return availableItems
-    return availableItems.filter((item) => (item.category || '').toLowerCase() === activeCategory)
-  }, [activeCategory, availableItems])
+    if (activeCategory === 'all') return visibleItems
+    return visibleItems.filter((item) => (item.category || '').toLowerCase() === activeCategory)
+  }, [activeCategory, visibleItems])
+
+  const arrangedItems = useMemo(() => {
+    const list = [...filteredItems]
+    if (activeCategory !== 'all') {
+      return list.sort((a, b) => a.name.localeCompare(b.name))
+    }
+    const getRank = (cat) => {
+      const index = CATEGORY_ORDER.indexOf((cat || '').toLowerCase())
+      return index === -1 ? 999 : index
+    }
+    return list.sort((a, b) => {
+      const categoryDiff = getRank(a.category) - getRank(b.category)
+      if (categoryDiff !== 0) return categoryDiff
+      return a.name.localeCompare(b.name)
+    })
+  }, [filteredItems, activeCategory])
+
+  const cartQtyByItemId = useMemo(() => {
+    const qtyMap = new Map()
+    for (const item of cart) {
+      qtyMap.set(item.menu_item_id, item.quantity)
+    }
+    return qtyMap
+  }, [cart])
 
   const addToCart = (item) => {
+    if (item.is_available === false) return
     setCart((prev) => {
       const existing = prev.find((c) => c.menu_item_id === item.id)
       if (existing) {
@@ -161,8 +207,8 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   }
 
   return (
-    <div className="grid grid-cols-3 gap-6 h-full">
-      <div className="col-span-2 space-y-4">
+    <div className="grid grid-cols-3 gap-4 h-full">
+      <div className="col-span-2 space-y-3">
         <div className="overflow-x-auto whitespace-nowrap px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           <div className="inline-flex items-center gap-2">
             {['all', ...categories].map((categoryKey) => (
@@ -180,63 +226,60 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
 
         <div ref={gridTopRef} />
 
-        {activeCategory === 'all' ? (
-          categories.map((cat) => {
-            const categoryItems = filteredItems.filter((item) => (item.category || '').toLowerCase() === cat)
-            if (categoryItems.length === 0) return null
-
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+        >
+          {arrangedItems.map((item) => {
+            const quantityInCart = cartQtyByItemId.get(item.id) || 0
+            const isUnavailable = item.is_available === false
+            const categoryKey = (item.category || 'other').toLowerCase()
+            const categoryLabel = CATEGORY_LABELS[categoryKey] || categoryKey
+            const categoryBadgeClass = CATEGORY_BADGE_STYLES[categoryKey] || CATEGORY_BADGE_STYLES.other
+            const categoryAccentClass = CATEGORY_ACCENT_STYLES[categoryKey] || CATEGORY_ACCENT_STYLES.other
             return (
-              <div key={cat}>
-                <h3 className="text-base font-semibold text-foreground mb-3 flex items-center gap-2">
-                  <span className="text-xl">{CATEGORY_ICONS[cat] || '🍽️'}</span>
-                  <span>{CATEGORY_LABELS[cat] || cat}</span>
-                </h3>
-                <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
-                  {categoryItems.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => addToCart(item)}
-                      className="relative bg-card border rounded-xl p-4 min-h-[188px] text-center transition-all group flex flex-col items-center justify-center hover:border-primary hover:shadow-md"
-                    >
-                      <div className="leading-none">
-                        <MenuItemImage item={item} size="w-16 h-16" emojiSize="text-4xl" />
-                      </div>
-                      <p className="font-semibold text-sm mt-4 group-hover:text-primary leading-snug">{item.name}</p>
-                      <p className="text-primary font-bold text-base mt-1">₱{item.price.toFixed(2)}</p>
-                      <div className="absolute right-3 bottom-3 bg-primary/10 text-primary rounded-full p-1">
-                        <Plus className="w-3 h-3" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })
-        ) : (
-          <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
-            {filteredItems.map((item) => (
               <button
                 key={item.id}
+                type="button"
+                disabled={isUnavailable}
                 onClick={() => addToCart(item)}
-                className="relative bg-card border rounded-xl p-4 min-h-[188px] text-center transition-all group flex flex-col items-center justify-center hover:border-primary hover:shadow-md"
+                className={`relative bg-card border rounded-xl p-3 min-h-[112px] text-center transition-all duration-150 group flex flex-col items-center justify-center gap-1 ${isUnavailable ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary hover:shadow-md active:scale-[0.98]'}`}
               >
+                {activeCategory === 'all' && (
+                  <span
+                    aria-hidden="true"
+                    className={`absolute left-0 top-2 bottom-2 w-1 rounded-r-full ${categoryAccentClass}`}
+                  />
+                )}
+                {activeCategory === 'all' && (
+                  <span className={`absolute left-1 top-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${categoryBadgeClass}`}>
+                    {categoryLabel}
+                  </span>
+                )}
+                {quantityInCart > 0 && (
+                  <span className="absolute top-1 right-1 bg-red-600 text-white rounded-full px-2 py-0.5 text-xs font-semibold">
+                    ×{quantityInCart}
+                  </span>
+                )}
+                {isUnavailable && (
+                  <span className="absolute left-1 top-1 rounded-full bg-slate-200 text-slate-700 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                    Unavailable
+                  </span>
+                )}
                 <div className="leading-none">
-                  <MenuItemImage item={item} size="w-16 h-16" emojiSize="text-4xl" />
+                  <MenuItemImage item={item} size="w-12 h-12" emojiSize="text-3xl" />
                 </div>
-                <p className="font-semibold text-sm mt-4 group-hover:text-primary leading-snug">{item.name}</p>
-                <p className="text-primary font-bold text-base mt-1">₱{item.price.toFixed(2)}</p>
-                <div className="absolute right-3 bottom-3 bg-primary/10 text-primary rounded-full p-1">
-                  <Plus className="w-3 h-3" />
-                </div>
+                <p className="font-semibold text-sm leading-snug line-clamp-2">{item.name}</p>
+                <p className="text-primary font-bold text-base">₱{item.price.toFixed(2)}</p>
               </button>
-            ))}
-          </div>
-        )}
+            )
+          })}
+        </div>
 
-        {availableItems.length > 0 && filteredItems.length === 0 && (
+        {visibleItems.length > 0 && arrangedItems.length === 0 && (
           <div className="text-center text-muted-foreground py-12">No available menu items in this category.</div>
         )}
-        {availableItems.length === 0 && (
+        {visibleItems.length === 0 && (
           <div className="text-center text-muted-foreground py-12">No menu items yet. Add them in Menu Items.</div>
         )}
       </div>

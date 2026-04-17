@@ -21,6 +21,26 @@ const STATUS_CONFIG = {
 }
 const DEFAULT_UNCATEGORIZED_ID = 7
 
+const CATEGORY_BADGE_STYLES = {
+  proteins: 'bg-rose-100 text-rose-700',
+  'bread & buns': 'bg-amber-100 text-amber-700',
+  dairy: 'bg-yellow-100 text-yellow-700',
+  'sauces & condiments': 'bg-orange-100 text-orange-700',
+  'sides & extras': 'bg-lime-100 text-lime-700',
+  packaging: 'bg-sky-100 text-sky-700',
+  uncategorized: 'bg-slate-100 text-slate-700',
+}
+
+const CATEGORY_ACCENT_STYLES = {
+  proteins: 'bg-rose-300/80',
+  'bread & buns': 'bg-amber-300/80',
+  dairy: 'bg-yellow-300/80',
+  'sauces & condiments': 'bg-orange-300/80',
+  'sides & extras': 'bg-lime-300/80',
+  packaging: 'bg-sky-300/80',
+  uncategorized: 'bg-slate-300/80',
+}
+
 // ─── Batch helpers ────────────────────────────────────────────────────
 function getActiveBatches(ingredientId, allBatches) {
   return (allBatches || [])
@@ -40,23 +60,42 @@ function formatDate(dateStr) {
 }
 
 // ─── Item Card ───────────────────────────────────────────────────────
-function ItemCard({ item, batches, onOpenPack }) {
+function ItemCard({ item, batches, onOpenPack, categoryLabel, categoryEmoji, showCategoryTag }) {
   const status = getStatus(item)
   const { badge, cardCls, badgeCls } = STATUS_CONFIG[status]
   const [showBatches, setShowBatches] = useState(false)
   const activeBatches = getActiveBatches(item.id, batches)
+  const outOfStock = (item.current_stock ?? 0) === 0
+  const categoryKey = String(categoryLabel || 'uncategorized').toLowerCase()
+  const categoryBadgeClass = CATEGORY_BADGE_STYLES[categoryKey] || CATEGORY_BADGE_STYLES.uncategorized
+  const categoryAccentClass = CATEGORY_ACCENT_STYLES[categoryKey] || CATEGORY_ACCENT_STYLES.uncategorized
 
   return (
-    <div
-      className={`flex flex-col rounded-2xl border-2 shadow-sm bg-white transition-all ${cardCls}`}
-      style={{ minHeight: '160px' }}
+    <button
+      type="button"
+      onClick={() => onOpenPack(item)}
+      disabled={outOfStock}
+      className={`w-full text-left flex flex-col rounded-2xl border-2 shadow-sm bg-white transition-all duration-150 p-3 min-h-[128px] ${cardCls} ${outOfStock ? 'opacity-60 cursor-not-allowed' : 'hover:shadow-md active:scale-[0.98]'}`}
     >
-      {/* Card body */}
-      <div className="flex-1 p-4 flex flex-col gap-2">
-        <p className="text-base font-bold text-gray-900 leading-tight">{item.name}</p>
+      <div className="flex-1 flex flex-col gap-1.5">
+        {showCategoryTag && (
+          <span
+            aria-hidden="true"
+            className={`absolute left-0 top-2 bottom-2 w-1 rounded-r-full ${categoryAccentClass}`}
+          />
+        )}
+        {showCategoryTag && (
+          <div>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${categoryBadgeClass}`}>
+              <span>{categoryEmoji || '📦'}</span>
+              <span>{categoryLabel || 'Uncategorized'}</span>
+            </span>
+          </div>
+        )}
+        <p className="text-[15px] font-bold text-gray-900 leading-tight">{item.name}</p>
         <p className="text-xs text-muted-foreground">{item.unit}</p>
 
-        <div className="mt-auto flex items-start justify-between gap-1">
+        <div className="mt-auto flex items-start justify-between gap-2">
           <div className="text-sm font-semibold text-gray-800 leading-tight">
             <div>{(item.current_stock ?? 0)} unopened packs</div>
             {item.pieces_per_pack && (item.open_pieces || 0) > 0 && (
@@ -74,7 +113,10 @@ function ItemCard({ item, batches, onOpenPack }) {
         {activeBatches.length > 0 && (
           <button
             type="button"
-            onClick={() => setShowBatches(!showBatches)}
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowBatches(!showBatches)
+            }}
             className="mt-1 text-left text-[11px] text-blue-600 hover:underline font-medium"
           >
             {showBatches ? '▼' : '▶'} {activeBatches.length} shipment{activeBatches.length > 1 ? 's' : ''}
@@ -105,24 +147,12 @@ function ItemCard({ item, batches, onOpenPack }) {
             ))}
           </div>
         )}
-      </div>
 
-      {/* CTA */}
-      <button
-        type="button"
-        onClick={() => onOpenPack(item)}
-        disabled={item.current_stock === 0}
-        className={`w-full py-3 rounded-b-2xl text-sm font-bold transition-colors
-          ${item.current_stock === 0
-            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-            : status === 'critical'
-              ? 'bg-red-600 hover:bg-red-700 text-white'
-              : 'bg-[#B01010] hover:bg-[#8c0d0d] text-white'
-          }`}
-      >
-        {item.current_stock === 0 ? 'Out of Stock' : 'Open New Pack'}
-      </button>
-    </div>
+        <div className={`pt-1 text-xs font-semibold ${outOfStock ? 'text-gray-400' : 'text-[#B01010]'}`}>
+          {outOfStock ? 'Out of Stock' : 'Tap to Open Pack'}
+        </div>
+      </div>
+    </button>
   )
 }
 
@@ -337,29 +367,34 @@ export default function ProductionLog() {
     return items.filter((item) => Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID) === Number(categoryFilter))
   }, [items, categoryFilter])
 
-  const groupedSections = useMemo(() => {
-    const grouped = {}
-    filteredItems.forEach((item) => {
-      const id = Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID)
-      grouped[id] = grouped[id] || []
-      grouped[id].push(item)
+  const categoryById = useMemo(() => {
+    const map = new Map()
+    categories.forEach((c) => {
+      map.set(Number(c.id), c)
     })
+    return map
+  }, [categories])
 
-    if (categoryFilter !== 'all') {
-      const selected = categories.find((c) => Number(c.id) === Number(categoryFilter))
-      if (!selected) return []
-      return [{ category: selected, items: grouped[Number(selected.id)] || [] }]
-    }
-
-    return [...categories]
+  const arrangedItems = useMemo(() => {
+    const list = [...filteredItems]
+    const rankById = new Map()
+    ;[...categories]
       .sort((a, b) => {
         if (Number(a.id) === DEFAULT_UNCATEGORIZED_ID) return 1
         if (Number(b.id) === DEFAULT_UNCATEGORIZED_ID) return -1
         return Number(a.order || 999) - Number(b.order || 999)
       })
-      .filter((category) => (grouped[Number(category.id)] || []).length > 0)
-      .map((category) => ({ category, items: grouped[Number(category.id)] || [] }))
-  }, [categories, filteredItems, categoryFilter])
+      .forEach((c, index) => rankById.set(Number(c.id), index))
+
+    return list.sort((a, b) => {
+      if (categoryFilter === 'all') {
+        const aRank = rankById.get(Number(a.categoryId ?? DEFAULT_UNCATEGORIZED_ID)) ?? 999
+        const bRank = rankById.get(Number(b.categoryId ?? DEFAULT_UNCATEGORIZED_ID)) ?? 999
+        if (aRank !== bRank) return aRank - bRank
+      }
+      return a.name.localeCompare(b.name)
+    })
+  }, [filteredItems, categories, categoryFilter])
 
   return (
     <div className="flex flex-col h-full gap-6">
@@ -433,19 +468,30 @@ export default function ProductionLog() {
           <p className="text-sm">No production items found. Ask your admin to add items.</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {groupedSections.map((section) => (
-            <div key={section.category.id}>
-              <h2 className="text-sm font-semibold text-slate-700 mb-3">
-                {section.category.emoji} {section.category.name}
-              </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {section.items.map((item) => (
-                  <ItemCard key={item.id} item={item} batches={batches} onOpenPack={handleOpenPack} />
-                ))}
-              </div>
+        <div>
+          {arrangedItems.length === 0 ? (
+            <div className="text-center text-muted-foreground py-12">No items in this category.</div>
+          ) : (
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
+            >
+              {arrangedItems.map((item) => {
+                const category = categoryById.get(Number(item.categoryId ?? DEFAULT_UNCATEGORIZED_ID))
+                return (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    batches={batches}
+                    onOpenPack={handleOpenPack}
+                    showCategoryTag={categoryFilter === 'all'}
+                    categoryLabel={category?.name || 'Uncategorized'}
+                    categoryEmoji={category?.emoji || '📦'}
+                  />
+                )
+              })}
             </div>
-          ))}
+          )}
         </div>
       )}
 

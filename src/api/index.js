@@ -11,6 +11,7 @@ const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectr
 const STORAGE_KEY = 'chelsys_burger_data'
 const CURRENT_USER_KEY = 'chelsys_current_user'
 const DEFAULT_UNCATEGORIZED_ID = 7
+const SEED_VERSION = '3'
 
 const DEFAULT_INGREDIENT_CATEGORIES = [
   { id: 1, name: 'Proteins', emoji: '🥩', order: 1 },
@@ -69,6 +70,9 @@ function buildFreshSeed() {
   }
 
   return {
+    meta: {
+      seed_version: SEED_VERSION,
+    },
     users: [
       { id: '1', username: 'admin', password: 'admin123', role: 'admin', full_name: 'Admin User' },
       { id: '2', username: 'user', password: 'user123', role: 'cashier', full_name: 'Maria' },
@@ -165,13 +169,147 @@ function buildFreshSeed() {
         items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo', quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' }] },
       { id: 'seed_ord_3', order_number: 'ORD-100003', cashier_name: 'Maria', total_amount: 198, payment_method: 'cash', status: 'completed', order_date: ymd(-1), created_at: iso(-1),
         items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger', quantity: 2, unit_price: 99, subtotal: 198, emoji: '🍔' }] },
+      { id: 'seed_ord_4', order_number: 'ORD-100004', cashier_name: 'Maria', total_amount: 119, payment_method: 'cash', status: 'voided', order_date: ymd(-2), created_at: iso(-2),
+        voidNote: 'Customer changed mind before pickup', voidedAt: iso(-2), voidedBy: 'Admin User',
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger', quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' }] },
     ],
-    purchaseOrders: [],
-    deliveries: [],
+    purchaseOrders: [
+      {
+        id: 'po_seed_1',
+        po_number: 'PO-0001',
+        supplier: 'Sunrise Bakery',
+        status: 'received',
+        notes: 'Weekly buns replenishment',
+        created_at: iso(-7),
+        updated_at: iso(-5),
+        received_at: iso(-5),
+        received_by: 'Admin',
+        items: [
+          { ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 5, quantityReceived: 5, unitCost: 8, totalCost: 40, discrepancy: 0, expiry_date: ymd(3) },
+        ],
+      },
+      {
+        id: 'po_seed_2',
+        po_number: 'PO-0002',
+        supplier: 'Dairy Best',
+        status: 'received',
+        notes: 'Cheese restock',
+        created_at: iso(-6),
+        updated_at: iso(-3),
+        received_at: iso(-3),
+        received_by: 'Admin',
+        items: [
+          { ingredientId: 'ing_6', ingredientName: 'Cheese Slices', unit: 'pack of 20', quantityOrdered: 6, quantityReceived: 6, unitCost: 75, totalCost: 450, discrepancy: 0, expiry_date: ymd(14) },
+        ],
+      },
+      {
+        id: 'po_seed_3',
+        po_number: 'PO-0003',
+        supplier: 'Local Meat Co.',
+        status: 'received',
+        notes: 'Beef patties (standard cycle)',
+        created_at: iso(-5),
+        updated_at: iso(-4),
+        received_at: iso(-4),
+        received_by: 'Admin',
+        items: [
+          { ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 30, quantityReceived: 30, unitCost: 45, totalCost: 1350, discrepancy: 0, expiry_date: ymd(5) },
+        ],
+      },
+      {
+        id: 'po_seed_4',
+        po_number: 'PO-0004',
+        supplier: 'Poultry Farm',
+        status: 'partially_received',
+        notes: 'Short-shipped by supplier',
+        created_at: iso(-4),
+        updated_at: iso(-2),
+        received_at: iso(-2),
+        received_by: 'Admin',
+        items: [
+          { ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', unit: 'pack of 10', quantityOrdered: 10, quantityReceived: 8, unitCost: 450, totalCost: 3600, discrepancy: -2, expiry_date: ymd(5) },
+        ],
+      },
+      {
+        id: 'po_seed_12',
+        po_number: 'PO-0012',
+        supplier: 'Condiments Inc.',
+        status: 'pending',
+        notes: 'Pending schedule confirmation',
+        created_at: iso(-1),
+        updated_at: iso(-1),
+        received_at: null,
+        received_by: null,
+        items: [
+          { ingredientId: 'ing_3', ingredientName: 'Ketchup', unit: '1kg bag', quantityOrdered: 4, quantityReceived: 0, unitCost: 120, totalCost: 480, discrepancy: -4, expiry_date: null },
+        ],
+      },
+    ],
+    deliveries: [
+      {
+        id: 'del_seed_1',
+        supplier: 'Sunrise Bakery',
+        receivedAt: iso(-5),
+        receivedBy: 'Admin',
+        notes: 'Full delivery for buns',
+        purchaseOrderId: 'PO-0001',
+        purchaseOrderRefId: 'po_seed_1',
+        hasDiscrepancy: false,
+        isPartialCompletion: false,
+        parentDeliveryId: null,
+        totalValue: 40,
+        items: [
+          { ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 5, quantityReceived: 5, unitCost: 8, totalCost: 40, expiry_date: ymd(3), discrepancy: 0 },
+        ],
+      },
+      {
+        id: 'del_seed_2',
+        supplier: 'Local Meat Co.',
+        receivedAt: iso(-4),
+        receivedBy: 'Admin',
+        notes: 'Full delivery for beef patties',
+        purchaseOrderId: 'PO-0003',
+        purchaseOrderRefId: 'po_seed_3',
+        hasDiscrepancy: false,
+        isPartialCompletion: false,
+        parentDeliveryId: null,
+        totalValue: 1350,
+        items: [
+          { ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 30, quantityReceived: 30, unitCost: 45, totalCost: 1350, expiry_date: ymd(5), discrepancy: 0 },
+        ],
+      },
+      {
+        id: 'del_seed_3',
+        supplier: 'Poultry Farm',
+        receivedAt: iso(-2),
+        receivedBy: 'Admin',
+        notes: 'Supplier short-shipped 2 packs',
+        purchaseOrderId: 'PO-0004',
+        purchaseOrderRefId: 'po_seed_4',
+        hasDiscrepancy: true,
+        isPartialCompletion: false,
+        parentDeliveryId: null,
+        totalValue: 3600,
+        items: [
+          { ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', unit: 'pack of 10', quantityOrdered: 10, quantityReceived: 8, unitCost: 450, totalCost: 3600, expiry_date: ymd(5), discrepancy: -2 },
+        ],
+      },
+    ],
     stockLogs: [],
+    savedSuppliers: [
+      'Sunrise Bakery',
+      'Dairy Best',
+      'Local Meat Co.',
+      'Poultry Farm',
+      'Condiments Inc.',
+      'FoodPro',
+      'Packaging Co.',
+    ],
     inventoryLogs: [
       { id: 'log_seed_1', createdAt: iso(-5), action: 'delivery_received', ingredientId: 'ing_2', ingredientName: 'Burger Buns', performedBy: 'Admin', details: 'Received 5 packs of Burger Buns (PO-0001)', newValue: '5 packs', severity: 'info' },
-      { id: 'log_seed_2', createdAt: iso(-1), action: 'delivery_received', ingredientId: 'ing_2', ingredientName: 'Burger Buns', performedBy: 'Admin', details: 'Received 2 packs of Burger Buns (PO-0002)', newValue: '2 packs', severity: 'info' },
+      { id: 'log_seed_2', createdAt: iso(-4), action: 'delivery_received', ingredientId: 'ing_1', ingredientName: 'Beef Patty', performedBy: 'Admin', details: 'Received 30 pcs of Beef Patty (PO-0003)', newValue: '30 pcs', severity: 'info' },
+      { id: 'log_seed_3', createdAt: iso(-2), action: 'delivery_received', ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', performedBy: 'Admin', details: 'Received 8 packs of Chicken Fillets (PO-0004)', newValue: '8 packs', severity: 'info' },
+      { id: 'log_seed_4', createdAt: iso(-2), action: 'delivery_discrepancy', ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', performedBy: 'Admin', details: 'Short delivery - ordered 10, received 8 (short by 2)', previousValue: '10 ordered', newValue: '8 received', severity: 'warning' },
     ],
   }
 }
@@ -432,6 +570,22 @@ async function initElectronDb() {
   if (!isElectron) return
   try {
     const fileData = await window.electronAPI.db.load()
+    const fileSeedVersion = fileData?.meta?.seed_version
+    const isSeedVersionMismatch =
+      fileData &&
+      typeof fileData === 'object' &&
+      fileSeedVersion !== SEED_VERSION
+
+    if (isSeedVersionMismatch) {
+      const fresh = buildFreshSeed()
+      for (const key of Object.keys(db)) delete db[key]
+      Object.assign(db, fresh)
+      save(db)
+      console.log(`[Chelsys] Seed version mismatch (${fileSeedVersion || 'none'} -> ${SEED_VERSION}). Database reset to fresh seed.`)
+      _electronDataLoaded = true
+      return
+    }
+
     const hasRealData =
       fileData &&
       typeof fileData === 'object' &&
@@ -442,6 +596,7 @@ async function initElectronDb() {
       // Replace (don't merge) — clear seed keys first so deleted rows don't linger
       for (const key of Object.keys(db)) delete db[key]
       Object.assign(db, fileData)
+      db.meta = { ...(db.meta || {}), seed_version: SEED_VERSION }
       console.log('[Chelsys] Loaded data from SQLite')
     } else {
       // Empty SQLite file — check for legacy localStorage, else persist current seed
@@ -451,14 +606,17 @@ async function initElectronDb() {
           const lsData = JSON.parse(raw)
           for (const key of Object.keys(db)) delete db[key]
           Object.assign(db, lsData)
+          db.meta = { ...(db.meta || {}), seed_version: SEED_VERSION }
           save(db)
           console.log('[Chelsys] Migrated localStorage → SQLite')
         } else {
           // First run with no prior data — persist the seed we already have
+          db.meta = { ...(db.meta || {}), seed_version: SEED_VERSION }
           save(db)
           console.log('[Chelsys] Created new SQLite database from seed')
         }
       } catch {
+        db.meta = { ...(db.meta || {}), seed_version: SEED_VERSION }
         save(db)
       }
     }

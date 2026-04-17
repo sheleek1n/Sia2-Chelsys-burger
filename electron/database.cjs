@@ -163,6 +163,11 @@ function getDb() {
     CREATE TABLE IF NOT EXISTS saved_suppliers (
       name TEXT PRIMARY KEY
     );
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `)
 
   return _db
@@ -285,6 +290,16 @@ function load() {
   const savedSuppliers = db.prepare('SELECT name FROM saved_suppliers').all()
     .map(r => r.name)
 
+  const metaRows = db.prepare('SELECT key, value FROM meta').all()
+  const meta = metaRows.reduce((acc, row) => {
+    try {
+      acc[row.key] = JSON.parse(row.value)
+    } catch {
+      acc[row.key] = row.value
+    }
+    return acc
+  }, {})
+
   return {
     users,
     orders,
@@ -297,6 +312,7 @@ function load() {
     stockLogs,
     inventoryLogs,
     savedSuppliers,
+    meta,
   }
 }
 
@@ -468,6 +484,13 @@ function save(data) {
     const insertSupplier = db.prepare('INSERT INTO saved_suppliers (name) VALUES (?)')
     for (const s of d.savedSuppliers || []) {
       insertSupplier.run(s)
+    }
+
+    // ── Meta ──
+    db.prepare('DELETE FROM meta').run()
+    const insertMeta = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)')
+    for (const [key, value] of Object.entries(d.meta || {})) {
+      insertMeta.run(key, JSON.stringify(value))
     }
   })
 
