@@ -3,14 +3,36 @@ import { cn } from '@/lib/utils'
 
 export function Dialog({ open, onOpenChange, children }) {
   useEffect(() => {
-    if (open) document.body.style.overflow = 'hidden'
-    else document.body.style.overflow = ''
+    if (open) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    // Always clear on unmount — guards against any mid-render close
     return () => { document.body.style.overflow = '' }
   }, [open])
+
+  // Second safety net: if component unmounts while open, clear immediately
+  useEffect(() => {
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onOpenChange?.(false)
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open, onOpenChange])
+
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/50" onClick={() => onOpenChange(false)} aria-hidden />
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onMouseDown={(e) => { if (e.target === e.currentTarget) onOpenChange?.(false) }}>
+      <div className="fixed inset-0 bg-black/50" aria-hidden />
       {children}
     </div>
   )

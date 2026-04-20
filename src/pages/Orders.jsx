@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { api } from '@/api'
 import { useAuth } from '@/lib/AuthContext'
 import { format } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban, Download, MoreHorizontal, RotateCcw, RefreshCw } from 'lucide-react'
+import { Search, ReceiptText, X, AlertTriangle, FilePenLine, Ban, Download, MoreHorizontal, RotateCcw, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import PageHeader from '@/components/shared/PageHeader'
 import { getPaymentLabel } from '@/utils'
 import { toast } from 'sonner'
@@ -178,6 +178,8 @@ export default function Orders() {
   const [error, setError] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
 
+  const [expandedOrderId, setExpandedOrderId] = useState(null)
+
   // Modals state
   const [receiptOrder, setReceiptOrder] = useState(null)
   const [noteOrder, setNoteOrder] = useState(null)
@@ -262,13 +264,11 @@ export default function Orders() {
   const handleVoid = async (orderId, note) => {
     try {
       const order = orders.find((o) => o.id === orderId)
-      await api.orders.update(orderId, {
-        status: 'voided',
+      await api.orders.voidWithReversal(orderId, {
+        voidedBy: user?.full_name || user?.username || 'Admin',
         voidNote: note || null,
-        voidedAt: new Date().toISOString(),
-        voidedBy: user?.full_name || 'Admin',
       })
-      toast.success(`Order ${order?.order_number} has been cancelled.`)
+      toast.success(`Order ${order?.order_number} cancelled — stock restored`)
       setVoidingOrder(null)
       loadData()
     } catch { toast.error('Failed to cancel order') }
@@ -321,7 +321,7 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Order History" subtitle="View and manage past orders" />
+      <PageHeader title="Order History" subtitle="View and manage past orders" compact />
 
       {/* Filter bar — row 1: search + dropdowns */}
       <div className="flex gap-2 mb-2 items-center">
@@ -440,13 +440,19 @@ export default function Orders() {
                 <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No orders found.</td></tr>
               )}
               {!loading && paginatedOrders.map((o) => (
-                <>
-                  <tr key={o.id} className={`border-b last:border-0 hover:bg-muted/20 ${o.incidentNote ? 'bg-amber-50/30' : ''} ${(o.status === 'voided' || o.status === 'cancelled') ? 'bg-red-50/40' : ''} ${o.status === 'refunded' ? 'bg-yellow-50/40' : ''}`}>
+                <Fragment key={o.id}>
+                  <tr
+                    onClick={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)}
+                    className={`border-b last:border-0 hover:bg-muted/20 cursor-pointer select-none ${o.incidentNote ? 'bg-amber-50/30' : ''} ${(o.status === 'voided' || o.status === 'cancelled') ? 'bg-red-50/40' : ''} ${o.status === 'refunded' ? 'bg-yellow-50/40' : ''}`}
+                  >
                     <td className="px-5 py-4 font-mono font-semibold">
                       <span className="flex items-center gap-1.5">
+                        {expandedOrderId === o.id
+                          ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                          : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
                         {o.order_number}
                         {o.incidentNote && (
-                          <span className="text-amber-600" title="Has incident note">⚠️</span>
+                          <span className="text-amber-500" title="Has incident note">⚠️</span>
                         )}
                       </span>
                     </td>
@@ -459,8 +465,13 @@ export default function Orders() {
                       )}
                     </td>
                     <td className="px-5 py-4">{o.cashier_name || '-'}</td>
-                    <td className="px-5 py-4 text-muted-foreground">
-                      {(o.items || []).length} items
+                    <td className="px-5 py-4 text-muted-foreground max-w-[200px]">
+                      <div className="truncate text-xs">
+                        {(o.items || []).slice(0, 2).map((i, idx) => (
+                          <span key={idx}>{idx > 0 && ', '}{i.emoji} {i.menu_item_name}{i.quantity > 1 ? ` ×${i.quantity}` : ''}</span>
+                        ))}
+                        {(o.items || []).length > 2 && <span className="text-muted-foreground/70"> +{(o.items || []).length - 2} more</span>}
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex flex-col items-start gap-1">
@@ -476,7 +487,7 @@ export default function Orders() {
                     <td className="px-5 py-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[o.status]}`}>{statusLabels[o.status] || o.status}</span>
                     </td>
-                    <td className="px-5 py-4 text-center">
+                    <td className="px-5 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="relative inline-block" ref={openMenuId === o.id ? menuRef : null}>
                         <button
                           onClick={() => setOpenMenuId(openMenuId === o.id ? null : o.id)}
@@ -541,6 +552,34 @@ export default function Orders() {
                       </div>
                     </td>
                   </tr>
+                  {/* Expanded item detail sub-row */}
+                  {expandedOrderId === o.id && (
+                    <tr className="bg-muted/10 border-b">
+                      <td colSpan={8} className="px-8 py-3">
+                        <table className="text-sm max-w-lg">
+                          <thead>
+                            <tr className="text-xs text-muted-foreground border-b border-muted/50">
+                              <th className="text-left pb-1.5 pr-6 font-medium">Item</th>
+                              <th className="text-center pb-1.5 pr-6 font-medium">Qty</th>
+                              <th className="text-right pb-1.5 pr-6 font-medium">Unit Price</th>
+                              <th className="text-right pb-1.5 font-medium">Subtotal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(o.items || []).map((item, idx) => (
+                              <tr key={idx} className="border-t border-muted/30">
+                                <td className="py-1.5 pr-6">{item.emoji} {item.menu_item_name}</td>
+                                <td className="py-1.5 pr-6 text-center text-muted-foreground">×{item.quantity}</td>
+                                <td className="py-1.5 pr-6 text-right text-muted-foreground">₱{item.unit_price?.toFixed(2)}</td>
+                                <td className="py-1.5 text-right font-medium">₱{(item.subtotal || 0).toFixed(2)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+
                   {/* Incident note sub-row */}
                   {o.incidentNote && (
                     <tr key={`${o.id}-note`} className="bg-amber-50/60 border-b">
@@ -573,7 +612,7 @@ export default function Orders() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

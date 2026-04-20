@@ -31,4 +31,6 @@ release/
 copilot-instructions.md
 UNIFIED_LOGIN_IMPLEMENTATION.md
 feature-*.md
-.claude/worktrees/
+
+# Claude Code local config (per-user, not shared)
+.claude/

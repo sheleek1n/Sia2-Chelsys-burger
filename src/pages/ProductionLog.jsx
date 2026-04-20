@@ -119,7 +119,7 @@ function ItemCard({ item, batches, onOpenPack, categoryLabel, categoryEmoji, sho
             }}
             className="mt-1 text-left text-[11px] text-blue-600 hover:underline font-medium"
           >
-            {showBatches ? '▼' : '▶'} {activeBatches.length} shipment{activeBatches.length > 1 ? 's' : ''}
+            {showBatches ? '▼' : '▶'} {activeBatches.length} restock{activeBatches.length > 1 ? 's' : ''}
           </button>
         )}
 
@@ -133,16 +133,14 @@ function ItemCard({ item, batches, onOpenPack, categoryLabel, categoryEmoji, sho
                   idx === 0 ? 'bg-blue-50 text-blue-800' : 'bg-slate-50 text-gray-600'
                 }`}
               >
-                <span className="font-semibold shrink-0">
-                  {idx === 0 ? 'NOW' : `#${idx + 1}`}
+                <span className="text-[9px] text-gray-500 truncate flex-1">
+                  {`Received ${formatDate(batch.receivedAt)}${batch.expiryDate ? ` → Expires ${formatDate(batch.expiryDate)}` : ''} · ${batch.quantity}/${batch.originalQuantity} left`}
                 </span>
-                <span className="text-[9px] text-gray-500 truncate flex-1 text-center">
-                  {formatDate(batch.receivedAt)}
-                  {batch.expiryDate && ` → ${formatDate(batch.expiryDate)}`}
-                </span>
-                <span className="font-medium shrink-0">
-                  {batch.quantity}/{batch.originalQuantity}
-                </span>
+                {idx === 0 && (
+                  <span className="font-semibold shrink-0">
+                    USING NOW
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -160,6 +158,18 @@ function ItemCard({ item, batches, onOpenPack, categoryLabel, categoryEmoji, sho
 function ConfirmModal({ item, batches, onCancel, onConfirm, loading }) {
   const [note, setNote] = useState('')
   const [qty, setQty] = useState(1)
+  useEffect(() => {
+    if (!item) return
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onCancel?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [item, onCancel])
+
   if (!item) return null
 
   const safeQty = Math.max(1, Math.min(qty || 1, item.current_stock ?? 1))
@@ -177,11 +187,11 @@ function ConfirmModal({ item, batches, onCancel, onConfirm, loading }) {
 
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
-          {/* Shows which shipment the pack will come from (oldest/soonest-to-expire first) */}
+          {/* Shows which restock the pack will come from (oldest/soonest-to-expire first) */}
           {fifoBatch && (
             <div className="text-xs p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-700">
-              <strong>Using stock from:</strong> Shipment #{fifoBatch.id?.slice(-4) || '?'}
-              {fifoBatch.expiryDate && ` • Expires: ${formatDate(fifoBatch.expiryDate)}`}
+              <strong>Using current restock</strong>
+              {fifoBatch.expiryDate && ` • Expires ${formatDate(fifoBatch.expiryDate)}`}
             </div>
           )}
 

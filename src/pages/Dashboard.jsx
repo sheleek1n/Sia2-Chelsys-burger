@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { api } from '@/api'
-import { DollarSign, ShoppingCart, TrendingUp, AlertTriangle, CheckCircle2, FileText, X, Printer } from 'lucide-react'
+import { DollarSign, ShoppingCart, TrendingUp, AlertTriangle, CheckCircle2, FileText, X, Printer, Clock } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { format, subDays } from 'date-fns'
 import StatCard from '@/components/dashboard/StatCard'
@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [orders, setOrders] = useState([])
   const [ingredients, setIngredients] = useState([])
   const [batches, setBatches] = useState([])
+  const [stockLogs, setStockLogs] = useState([])
   const [chartView, setChartView] = useState('today') // 'today' or 'week'
   const [paymentFilter, setPaymentFilter] = useState('all')
   const [showEOD, setShowEOD] = useState(false)
@@ -27,11 +28,12 @@ export default function Dashboard() {
   useEffect(() => {
     setLoading(true)
     setError(null)
-    Promise.all([api.orders.list(500), api.ingredients.list(), api.stockBatches.list()])
-      .then(([o, i, b]) => {
+    Promise.all([api.orders.list(500), api.ingredients.list(), api.stockBatches.list(), api.stockLogs.list(2000)])
+      .then(([o, i, b, sl]) => {
         setOrders(o)
         setIngredients(i)
         setBatches(b)
+        setStockLogs(sl)
       })
       .catch((err) => {
         setError(err.message || 'Failed to load dashboard data')
@@ -158,6 +160,49 @@ export default function Dashboard() {
     return groups.slice(0, 4)
   }, [inventoryAlerts])
 
+  // #6 — Projected runout forecast: avg daily consumption over last 7 days
+  const projectedRunout = useMemo(() => {
+    if (!stockLogs.length || !ingredients.length) return []
+
+    const sevenDaysAgo = subDays(new Date(), 7)
+    const recentLogs = stockLogs.filter(
+      (l) =>
+        (l.action === 'consumed' || l.action === 'pieces_consumed') &&
+        new Date(l.createdAt) >= sevenDaysAgo &&
+        l.quantity < 0
+    )
+
+    // Group total consumption by ingredientId over last 7 days
+    const consumptionById = {}
+    for (const log of recentLogs) {
+      const id = log.itemId
+      if (!id) continue
+      consumptionById[id] = (consumptionById[id] || 0) + Math.abs(log.quantity)
+    }
+
+    return ingredients
+      .filter((ing) => consumptionById[ing.id]) // only ingredients actively being consumed
+      .map((ing) => {
+        const ppp = ing.pieces_per_pack && ing.pieces_per_pack > 1 ? ing.pieces_per_pack : null
+        const totalStock = ppp
+          ? (ing.current_stock || 0) * ppp + (ing.open_pieces || 0)
+          : ing.current_stock || 0
+        const consumed7d = consumptionById[ing.id] || 0
+        const dailyRate = consumed7d / 7
+        const daysLeft = dailyRate > 0 ? Math.round(totalStock / dailyRate) : null
+        return {
+          id: ing.id,
+          name: ing.name,
+          daysLeft,
+          dailyRate: Math.round(dailyRate * 10) / 10,
+          unit: ppp ? 'pcs/day' : `${ing.unit || 'units'}/day`,
+        }
+      })
+      .filter((item) => item.daysLeft !== null && item.daysLeft < 30)
+      .sort((a, b) => a.daysLeft - b.daysLeft)
+      .slice(0, 6)
+  }, [stockLogs, ingredients])
+
   if (loading) {
     return (
       <div>
@@ -273,6 +318,38 @@ export default function Dashboard() {
 
       <TopItems orders={todayOrders} />
 
+      {/* #6 — Projected Runout Forecast */}
+      {isAdmin && projectedRunout.length > 0 && (
+        <div className="mt-6 bg-card rounded-xl border border-orange-200 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-4 h-4 text-orange-600" />
+            <h3 className="font-semibold text-sm text-orange-800">Projected Stock Runout (based on last 7 days)</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {projectedRunout.map((item) => {
+              const isUrgent = item.daysLeft <= 2
+              const isWarning = item.daysLeft <= 5
+              const colorCls = isUrgent
+                ? 'bg-red-50 border-red-200'
+                : isWarning
+                  ? 'bg-orange-50 border-orange-200'
+                  : 'bg-yellow-50 border-yellow-200'
+              const textCls = isUrgent ? 'text-red-700' : isWarning ? 'text-orange-700' : 'text-yellow-700'
+              return (
+                <div key={item.id} className={`rounded-lg border p-3 ${colorCls}`}>
+                  <p className="text-xs font-semibold text-gray-700 truncate">{item.name}</p>
+                  <p className={`text-lg font-bold ${textCls}`}>
+                    {item.daysLeft === 0 ? '< 1 day' : `~${item.daysLeft} day${item.daysLeft !== 1 ? 's' : ''}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{item.dailyRate} {item.unit}</p>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">Only showing ingredients running out within 30 days based on recent usage.</p>
+        </div>
+      )}
+
       {/* End-of-Day Summary Modal */}
       {showEOD && (
         <EODModal
@@ -288,6 +365,17 @@ export default function Dashboard() {
 }
 
 function EODModal({ orders, todayOrders, today, inventoryAlerts, onClose }) {
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onClose?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+
   const totalRevenue = todayOrders.reduce((s, o) => s + (o.total_amount || 0), 0)
   const orderCount = todayOrders.length
   const avgOrder = orderCount > 0 ? Math.round(totalRevenue / orderCount) : 0

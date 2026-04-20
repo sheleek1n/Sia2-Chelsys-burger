@@ -58,6 +58,7 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
   const [paymentError, setPaymentError] = useState('')
   const [amountTendered, setAmountTendered] = useState('')
   const [notes, setNotes] = useState('')
+  const [showNotes, setShowNotes] = useState(false)
   const gridTopRef = useRef(null)
 
   const visibleItems = useMemo(() => menuItems, [menuItems])
@@ -201,6 +202,7 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
     })
     setCart([])
     setNotes('')
+    setShowNotes(false)
     setGcashReference('')
     setPaymentError('')
     setAmountTendered('')
@@ -398,8 +400,20 @@ export default function OrderForm({ menuItems = [], onSubmit, loading }) {
             </div>
           </div>
           <div>
-            <Label className="text-xs">Notes (optional)</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-1 text-sm" />
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full h-8 text-xs"
+              onClick={() => setShowNotes((v) => !v)}
+            >
+              {showNotes ? 'Hide note' : '+ Add note'}
+            </Button>
+            {showNotes && (
+              <div className="mt-2">
+                <Label className="text-xs">Note (optional)</Label>
+                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="mt-1 text-sm" />
+              </div>
+            )}
           </div>
           <Button className="w-full bg-primary hover:bg-primary/90" disabled={cart.length === 0 || loading || cashInsufficient} onClick={handleSubmit}>
             {loading ? 'Saving...' : 'Place Order'}

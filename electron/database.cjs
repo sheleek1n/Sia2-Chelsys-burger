@@ -21,6 +21,15 @@ const OLD_JSON_FILENAME = 'chelsys-burger-data.json'
 
 let _db = null
 
+function ensureColumn(db, tableName, columnName, columnDefinition) {
+  const cols = db.prepare(`PRAGMA table_info("${tableName}")`).all()
+  const hasColumn = cols.some((c) => c.name === columnName)
+  if (!hasColumn) {
+    db.exec(`ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnDefinition}`)
+    console.log(`[Chelsys DB] Added missing column: ${tableName}.${columnName}`)
+  }
+}
+
 function getDbPath() {
   return path.join(app.getPath('userData'), DB_FILENAME)
 }
@@ -144,7 +153,9 @@ function getDb() {
       quantity REAL DEFAULT 0,
       note TEXT,
       loggedBy TEXT,
-      createdAt TEXT
+      createdAt TEXT,
+      order_id TEXT,
+      batch_ids TEXT
     );
 
     CREATE TABLE IF NOT EXISTS inventory_logs (
@@ -169,6 +180,10 @@ function getDb() {
       value TEXT
     );
   `)
+
+  // Backfill columns added in later releases for existing installations.
+  ensureColumn(_db, 'stock_logs', 'order_id', 'TEXT')
+  ensureColumn(_db, 'stock_logs', 'batch_ids', 'TEXT')
 
   return _db
 }
@@ -276,6 +291,11 @@ function load() {
     .map(r => ({
       ...r,
       note: r.note ?? null,
+      orderId: r.order_id ?? null,
+      batchIds: r.batch_ids ? jsonParse(r.batch_ids) : undefined,
+      // remove raw column names, use camelCase versions
+      order_id: undefined,
+      batch_ids: undefined,
     }))
 
   const inventoryLogs = db.prepare('SELECT * FROM inventory_logs').all()
@@ -451,14 +471,16 @@ function save(data) {
     // ── Stock Logs ──
     db.prepare('DELETE FROM stock_logs').run()
     const insertStockLog = db.prepare(
-      `INSERT INTO stock_logs (id, itemId, itemName, action, quantity, note, loggedBy, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO stock_logs (id, itemId, itemName, action, quantity, note, loggedBy, createdAt, order_id, batch_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const l of d.stockLogs || []) {
       insertStockLog.run(
         l.id, l.itemId ?? null, l.itemName ?? null,
         l.action ?? null, l.quantity ?? 0,
-        l.note ?? null, l.loggedBy ?? null, l.createdAt ?? null
+        l.note ?? null, l.loggedBy ?? null, l.createdAt ?? null,
+        l.orderId ?? null,
+        l.batchIds ? JSON.stringify(l.batchIds) : null
       )
     }
 

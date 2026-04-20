@@ -157,6 +157,8 @@ export default function Products() {
   const [logActionFilter, setLogActionFilter] = useState('all')
   const [logSearch, setLogSearch] = useState('')
   const [logPage, setLogPage] = useState(1)
+  const [showActivityFilters, setShowActivityFilters] = useState(false)
+  const [activityCompactMode, setActivityCompactMode] = useState(true)
   const [deleteConfirm, setDeleteConfirm] = useState(null) // { type, id, name, onConfirm }
 
   const loadMenu = () => api.menuItems.list().then((i) => { setMenuItems(i); setMenuLoading(false) }).catch(() => { setMenuLoading(false); toast.error('Failed to load menu items') })
@@ -457,7 +459,7 @@ export default function Products() {
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
                 <Package className="w-3.5 h-3.5" />
-                Stock Shipments — oldest is used first to avoid waste
+                Stock Restocks — oldest is used first to avoid waste
               </div>
               {exhaustedCount > 0 && (
                 <button
@@ -470,12 +472,12 @@ export default function Products() {
               )}
             </div>
             {visibleBatches.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">No active batches.</p>
+              <p className="text-xs text-muted-foreground py-2">No active restocks.</p>
             ) : (
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-muted-foreground">
-                    <th className="text-left py-1.5 pr-4 font-medium">Shipment</th>
+                    <th className="text-left py-1.5 pr-4 font-medium">Restock</th>
                     <th className="text-left py-1.5 pr-4 font-medium">Received</th>
                     <th className="text-left py-1.5 pr-4 font-medium">Expires</th>
                     <th className="text-right py-1.5 pr-4 font-medium">Left</th>
@@ -490,7 +492,7 @@ export default function Products() {
                     return (
                       <tr key={batch.id} className={`${batch.isExhausted ? 'opacity-40 line-through' : getBatchExpiryTint(batch.expiryDate)} ${idx === 0 && !batch.isExhausted ? 'font-medium' : ''}`}>
                         <td className="py-1.5 pr-4">
-                          #{idx + 1}
+                          {idx === 0 ? 'Current restock' : 'Older restock'}
                           {idx === 0 && !batch.isExhausted && <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">USING NOW</span>}
                         </td>
                         <td className="py-1.5 pr-4 text-muted-foreground">{format(new Date(batch.receivedAt), 'MMM d, yyyy')}</td>
@@ -713,6 +715,7 @@ export default function Products() {
       <PageHeader 
         title="Menu & Stock"
         subtitle="Your menu prices and ingredient stock levels"
+        compact
         action={headerAction}
       />
 
@@ -1068,7 +1071,38 @@ export default function Products() {
         {/* ═══════════════════════════════════════════════════════════════ */}
         {isAdmin && (
           <TabsContent value="activity" className="m-0 flex-1 flex flex-col outline-none">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Filters</span>
+                <span className="px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                  {logActionFilter === 'all' ? 'All Actions' : logActionFilter.replace('_', ' ')}
+                </span>
+                {(logDateFrom || logDateTo) && (
+                  <span className="px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                    {logDateFrom || '...'} to {logDateTo || '...'}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActivityCompactMode((v) => !v)}
+                  className="h-8 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-muted/50"
+                >
+                  {activityCompactMode ? 'Comfort' : 'Dense'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowActivityFilters((v) => !v)}
+                  className="h-8 rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-muted/50"
+                >
+                  {showActivityFilters ? 'Hide filters' : 'More filters'}
+                </button>
+              </div>
+            </div>
+
             {/* ── Filters Row ─────────────────────────────────────────── */}
+            {showActivityFilters && (
             <div className="flex flex-wrap items-end gap-3 mb-4">
               {/* Date From */}
               <div className="flex flex-col gap-1">
@@ -1132,19 +1166,20 @@ export default function Products() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* ── Summary Chips ───────────────────────────────────────── */}
-            <div className="flex gap-3 mb-4">
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-card border shadow-sm">
+            <div className={`flex gap-3 ${activityCompactMode ? 'mb-3' : 'mb-4'}`}>
+              <div className={`flex items-center gap-2 rounded-lg bg-card border shadow-sm ${activityCompactMode ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
                 <span className="text-xs font-medium text-muted-foreground">Total today</span>
                 <span className="text-sm font-bold">{todaySummary.total}</span>
               </div>
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-50 border border-yellow-200 shadow-sm">
+              <div className={`flex items-center gap-2 rounded-lg bg-yellow-50 border border-yellow-200 shadow-sm ${activityCompactMode ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
                 <span className="w-2 h-2 rounded-full bg-yellow-500" />
                 <span className="text-xs font-medium text-yellow-700">Warnings</span>
                 <span className="text-sm font-bold text-yellow-700">{todaySummary.warnings}</span>
               </div>
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 shadow-sm">
+              <div className={`flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 shadow-sm ${activityCompactMode ? 'px-3 py-1.5' : 'px-4 py-2'}`}>
                 <span className="w-2 h-2 rounded-full bg-red-500" />
                 <span className="text-xs font-medium text-red-700">Critical</span>
                 <span className="text-sm font-bold text-red-700">{todaySummary.critical}</span>
@@ -1156,10 +1191,8 @@ export default function Products() {
               {logLoading ? (
                 <div className="flex-1 flex items-center justify-center py-16 text-muted-foreground">Loading activity log...</div>
               ) : filteredLogs.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-16 text-muted-foreground">
-                  <ClipboardList className="w-12 h-12 mb-4 opacity-30" />
-                  <p className="text-lg font-medium mb-1">No activity recorded yet.</p>
-                  <p className="text-sm text-center max-w-sm">Actions like opening packs, adjusting stock, and receiving deliveries will appear here.</p>
+                <div className="flex-1 flex items-center justify-center py-10 text-sm text-muted-foreground">
+                  No activity yet — stock changes and deliveries will appear here.
                 </div>
               ) : (
                 <>
@@ -1167,38 +1200,38 @@ export default function Products() {
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10">
                         <tr className="border-b bg-muted/20">
-                          <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Time</th>
-                          <th className="text-center px-3 py-3 font-semibold text-muted-foreground w-10"></th>
-                          <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Action</th>
-                          <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Ingredient</th>
-                          <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Details</th>
-                          <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Before → After</th>
-                          <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">By</th>
+                          <th className={`text-left px-4 font-semibold text-muted-foreground whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>Time</th>
+                          <th className={`text-center px-3 font-semibold text-muted-foreground w-10 ${activityCompactMode ? 'py-2' : 'py-3'}`}></th>
+                          <th className={`text-left px-4 font-semibold text-muted-foreground whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>Action</th>
+                          <th className={`text-left px-4 font-semibold text-muted-foreground whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>Ingredient</th>
+                          <th className={`text-left px-4 font-semibold text-muted-foreground ${activityCompactMode ? 'py-2' : 'py-3'}`}>Details</th>
+                          <th className={`text-left px-4 font-semibold text-muted-foreground whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>Before → After</th>
+                          <th className={`text-left px-4 font-semibold text-muted-foreground whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>By</th>
                         </tr>
                       </thead>
                       <tbody>
                         {paginatedLogs.map((log) => (
                           <tr key={log.id} className={`border-b last:border-0 hover:bg-muted/10 transition-colors ${SEVERITY_ROW_BG[log.severity] || ''}`}>
                             {/* Time */}
-                            <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
+                            <td className={`px-4 whitespace-nowrap text-muted-foreground text-xs ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               {formatLogTime(log.createdAt)}
                             </td>
                             {/* Severity dot */}
-                            <td className="px-3 py-3 text-center">
+                            <td className={`px-3 text-center ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               <span className={`inline-block w-2.5 h-2.5 rounded-full ${SEVERITY_DOTS[log.severity] || 'bg-gray-400'}`} title={log.severity} />
                             </td>
                             {/* Action badge */}
-                            <td className="px-4 py-3">
+                            <td className={`px-4 ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${ACTION_BADGE_STYLES[log.action] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
                                 {ACTION_LABELS[log.action] || log.action}
                               </span>
                             </td>
                             {/* Ingredient */}
-                            <td className="px-4 py-3 font-medium whitespace-nowrap">
+                            <td className={`px-4 font-medium whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               {log.ingredientName || '—'}
                             </td>
                             {/* Details */}
-                            <td className="px-4 py-3 text-muted-foreground max-w-[420px] whitespace-normal break-words">
+                            <td className={`px-4 text-muted-foreground max-w-[420px] whitespace-normal break-words ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               {log.details?.includes('⚠️') ? (
                                 <div className="flex flex-col gap-1">
                                   <span>{log.details.split('⚠️')[0].trim()}</span>
@@ -1210,7 +1243,7 @@ export default function Products() {
                               ) : log.details}
                             </td>
                             {/* Before → After */}
-                            <td className="px-4 py-3 whitespace-nowrap text-xs">
+                            <td className={`px-4 whitespace-nowrap text-xs ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               {log.previousValue || log.newValue ? (
                                 <span className="text-muted-foreground">
                                   {log.previousValue && <span>{log.previousValue}</span>}
@@ -1222,7 +1255,7 @@ export default function Products() {
                               )}
                             </td>
                             {/* By */}
-                            <td className="px-4 py-3 whitespace-nowrap">
+                            <td className={`px-4 whitespace-nowrap ${activityCompactMode ? 'py-2' : 'py-3'}`}>
                               <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${log.performedBy === 'System' ? 'bg-gray-100 text-gray-600' : log.performedBy === 'Admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-sky-100 text-sky-700'}`}>
                                 {log.performedBy}
                               </span>

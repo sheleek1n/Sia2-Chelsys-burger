@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, Package, Check, X } from 'lucide-react'
 import { api } from '@/api'
 import { toast } from 'sonner'
@@ -11,6 +11,17 @@ import { toast } from 'sonner'
 export default function StockShortageModal({ shortages: initialShortages, cashierName, onRetry, onCancel }) {
   const [shortages, setShortages] = useState(initialShortages)
   const [opening, setOpening] = useState({}) // ingredientId → true while loading
+
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onCancel?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onCancel])
 
   const handleOpenPack = async (shortage) => {
     const { ingredientId, ingredientName } = shortage

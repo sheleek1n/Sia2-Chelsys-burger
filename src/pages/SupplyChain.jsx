@@ -16,12 +16,18 @@ import DeleteConfirmModal from '@/components/shared/DeleteConfirmModal'
 // ─── Formatting & Badges ─────────────────────────────────────────────
 const formatCurrency = (val) => `₱${Number(val || 0).toFixed(2)}`
 const formatDate = (dateStr) => dateStr ? format(new Date(dateStr), 'MMM d, yyyy') : '-'
+const formatQtyDiff = (discrepancy) => {
+  const diff = Number(discrepancy || 0)
+  if (diff > 0) return `+${diff} Over`
+  if (diff < 0) return `${diff} Short`
+  return '0 Match'
+}
 
 const StatusBadge = ({ status }) => {
   const config = {
     pending:   { bg: 'bg-gray-100', text: 'text-gray-700',   label: 'Pending' },
     ordered:   { bg: 'bg-blue-100', text: 'text-blue-700',   label: 'Ordered' },
-    partially_received: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Incomplete' },
+    partially_received: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Partial' },
     received:  { bg: 'bg-green-100', text: 'text-green-700', label: 'Received' },
     cancelled: { bg: 'bg-red-100', text: 'text-red-700',     label: 'Cancelled' },
   }
@@ -36,6 +42,7 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients, savedSuppliers,
   const [showNewSupplier, setShowNewSupplier] = useState(false)
   const [expectedDate, setExpectedDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [showNotes, setShowNotes] = useState(false)
   const [items, setItems] = useState([])
   const [selectedIngredientId, setSelectedIngredientId] = useState('')
   const [loading, setLoading] = useState(false)
@@ -48,6 +55,7 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients, savedSuppliers,
       setShowNewSupplier(false)
       setExpectedDate(format(new Date(), 'yyyy-MM-dd'))
       setNotes('')
+      setShowNotes(false)
       setItems([])
       setSelectedIngredientId('')
     }
@@ -174,16 +182,25 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients, savedSuppliers,
             )}
           </div>
 
-          {/* Date + Notes row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm font-semibold mb-2 block">Expected Delivery Date</Label>
-              <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="h-10" />
+          {/* Date + Optional Note */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+              <div>
+                <Label className="text-sm font-semibold mb-2 block">Expected Delivery Date</Label>
+                <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} className="h-10" />
+              </div>
+              <div className="flex sm:justify-end">
+                <Button type="button" variant="outline" onClick={() => setShowNotes((v) => !v)} className="w-full sm:w-auto">
+                  {showNotes ? 'Hide note' : '+ Add note'}
+                </Button>
+              </div>
             </div>
-            <div>
-              <Label className="text-sm font-semibold mb-2 block">Notes <span className="font-normal text-slate-400">(optional)</span></Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. deliver to back door" className="h-10" />
-            </div>
+            {showNotes && (
+              <div>
+                <Label className="text-sm font-semibold mb-2 block">Note <span className="font-normal text-slate-400">(optional)</span></Label>
+                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. deliver to back door" className="h-10" />
+              </div>
+            )}
           </div>
 
           {/* Items table */}
@@ -256,7 +273,7 @@ function CreatePODialog({ open, onClose, onSuccess, ingredients, savedSuppliers,
 
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t mt-2">
+        <div className="flex justify-end gap-3 pt-4 border-t mt-2 flex-shrink-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={loading} onClick={handleSubmit} className="bg-[#B01010] hover:bg-[#8A0C0C] px-6">
             {loading ? 'Creating...' : 'Create Order'}
@@ -357,6 +374,12 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
       setReceivedDate(format(new Date(), 'yyyy-MM-dd'))
       setNotes('')
       setItems([])
+    } else {
+      // Clear stale PO selection when dialog closes — prevents the populate
+      // useEffect from re-firing with a stale selectedPOId after Cancel
+      setSelectedPOId('')
+      setItems([])
+      setLoading(false)
     }
   }, [open, completionPO])
 
@@ -458,8 +481,9 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[95vw] max-w-7xl max-h-[92vh] overflow-hidden flex flex-col">
         <DialogHeader><DialogTitle>{isCompletingPartial ? 'Mark as Done' : 'Record Delivery'}</DialogTitle></DialogHeader>
-        
-        <div className="space-y-6 mt-2 flex-1 overflow-y-auto pr-1">
+
+        <div className="flex-1 overflow-y-auto pr-1 min-h-0">
+        <div className="space-y-6 mt-2">
           {/* Source Toggle */}
           {!isCompletingPartial && (
             <div className="flex gap-4 p-1 bg-slate-100 rounded-lg">
@@ -590,7 +614,7 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
                           </div>
                           {sourceType === 'po' && !isCompletingPartial && Number(item.qtyReceived) !== Number(item.qtyOrdered) && (
                             <p className={`text-[11px] font-medium ${item.discrepancy < 0 ? 'text-red-600' : 'text-amber-600'}`}>
-                              {item.discrepancy < 0 ? `Short by ${Math.abs(item.discrepancy)}` : `Over by ${item.discrepancy}`}
+                              {formatQtyDiff(item.discrepancy)}
                             </p>
                           )}
                         </div>
@@ -655,13 +679,16 @@ function ReceiveDeliveryDialog({ open, onClose, onSuccess, ingredients, activePO
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button disabled={loading || items.length===0} onClick={handleSubmit} className="bg-green-600 hover:bg-green-700 text-white shadow-sm">
-              <PackageCheck className="w-4 h-4 mr-2" />
-              {loading ? 'Processing...' : 'Confirm Delivery'}
-            </Button>
-          </div>
+        </div>
+        </div>
+
+        {/* Footer always visible — outside the scrollable area */}
+        <div className="flex justify-end gap-3 pt-4 border-t mt-2 flex-shrink-0">
+          <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button disabled={loading || items.length === 0} onClick={handleSubmit} className="bg-green-600 hover:bg-green-700 text-white shadow-sm">
+            <PackageCheck className="w-4 h-4 mr-2" />
+            {loading ? 'Processing...' : 'Confirm Delivery'}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -708,7 +735,7 @@ function DeliveryDetailModal({ delivery, onClose }) {
                       +{item.quantityReceived} <span className="text-xs text-slate-500">{item.unit || 'units'}</span>
                       {item.discrepancy !== 0 && (
                         <span className={`ml-2 text-[11px] font-medium ${item.discrepancy < 0 ? 'text-red-600' : 'text-amber-700'}`}>
-                          {item.discrepancy < 0 ? `short ${Math.abs(item.discrepancy)}` : `over ${item.discrepancy}`}
+                          {formatQtyDiff(item.discrepancy)}
                         </span>
                       )}
                     </td>
@@ -740,6 +767,18 @@ function ManageSuppliersModal({ open, onClose, savedSuppliers, onChanged }) {
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onClose?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [open, onClose])
 
   const handleAdd = async (e) => {
     e.preventDefault()
@@ -834,6 +873,8 @@ export default function SupplyChain() {
   const [deliveries, setDeliveries] = useState([])
   
   const [poFilter, setPoFilter] = useState('all') // all, pending, ordered, partially_received, received
+  const [showPoFilters, setShowPoFilters] = useState(false)
+  const [compactMode, setCompactMode] = useState(true)
 
   const [createPoOpen, setCreatePoOpen] = useState(false)
   const [receiveDelOpen, setReceiveDelOpen] = useState(false)
@@ -885,31 +926,46 @@ export default function SupplyChain() {
   }, [pos, deliveries])
 
   const filteredPOs = pos.filter(p => poFilter === 'all' || p.status === poFilter)
+  const poFilterLabelMap = {
+    all: 'All',
+    pending: 'Pending',
+    ordered: 'Ordered',
+    partially_received: 'Partial',
+    received: 'Received',
+  }
+  const poFilterOptions = ['all', 'pending', 'ordered', 'partially_received', 'received']
+  const compactTableClass = compactMode
+    ? '[&_th]:!px-3 [&_th]:!py-2 [&_td]:!px-3 [&_td]:!py-2'
+    : ''
 
   return (
-    <div className="flex flex-col h-full gap-4 pb-4">
-      <div className="flex justify-between items-center mb-5">
-        <div>
-          <h1 className="text-2xl font-bold">Deliveries</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Track supplier orders and incoming stock</p>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" className="whitespace-nowrap font-semibold text-slate-600 border-slate-200 hover:bg-slate-50" onClick={() => setManageSuppliersOpen(true)}>
-            Suppliers
-          </Button>
-          <Button variant="outline" className="whitespace-nowrap gap-2 font-semibold text-[#B01010] border-[#B01010]/30 hover:bg-[#B01010]/5" onClick={() => setCreatePoOpen(true)}>
-            <ShoppingBag className="w-4 h-4" /> New Order
-          </Button>
-          <Button className="whitespace-nowrap gap-2 font-semibold bg-green-600 hover:bg-green-700" onClick={() => { setCompletionPO(null); setReceiveDelOpen(true) }}>
-            <PackageCheck className="w-4 h-4" /> Record Delivery
-          </Button>
-        </div>
-      </div>
+    <div className={`flex flex-col h-full ${compactMode ? 'gap-3 pb-3' : 'gap-4 pb-4'}`}>
+      <PageHeader
+        title="Deliveries"
+        subtitle="Track supplier orders and incoming stock"
+        compact
+        action={
+          <div className="flex gap-2 flex-shrink-0">
+            <Button variant="outline" className="whitespace-nowrap font-semibold" onClick={() => setCompactMode((v) => !v)}>
+              {compactMode ? 'Comfort' : 'Dense'}
+            </Button>
+            <Button variant="outline" className="whitespace-nowrap font-semibold text-slate-600 border-slate-200 hover:bg-slate-50" onClick={() => setManageSuppliersOpen(true)}>
+              Suppliers
+            </Button>
+            <Button variant="outline" className="whitespace-nowrap gap-2 font-semibold text-[#B01010] border-[#B01010]/30 hover:bg-[#B01010]/5" onClick={() => setCreatePoOpen(true)}>
+              <ShoppingBag className="w-4 h-4" /> New Order
+            </Button>
+            <Button className="whitespace-nowrap gap-2 font-semibold bg-green-600 hover:bg-green-700" onClick={() => { setCompletionPO(null); setReceiveDelOpen(true) }}>
+              <PackageCheck className="w-4 h-4" /> Record Delivery
+            </Button>
+          </div>
+        }
+      />
 
       {/* Summary Bar */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
-        <div className="bg-white border rounded-xl px-5 py-4 shadow-sm flex items-center gap-4">
-          <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 flex-shrink-0">
+      <div className={`grid grid-cols-3 ${compactMode ? 'gap-3 mb-3' : 'gap-4 mb-4'}`}>
+        <div className={`bg-white border rounded-xl shadow-sm flex items-center ${compactMode ? 'px-3 py-2.5 gap-3' : 'px-5 py-4 gap-4'}`}>
+          <div className={`${compactMode ? 'p-2' : 'p-2.5'} rounded-xl bg-amber-50 text-amber-600 flex-shrink-0`}>
             <AlertCircle className="w-5 h-5" />
           </div>
           <div>
@@ -917,8 +973,8 @@ export default function SupplyChain() {
             <p className="text-2xl font-bold">{stats.pending}</p>
           </div>
         </div>
-        <div className="bg-white border rounded-xl px-5 py-4 shadow-sm flex items-center gap-4">
-          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 flex-shrink-0">
+        <div className={`bg-white border rounded-xl shadow-sm flex items-center ${compactMode ? 'px-3 py-2.5 gap-3' : 'px-5 py-4 gap-4'}`}>
+          <div className={`${compactMode ? 'p-2' : 'p-2.5'} rounded-xl bg-blue-50 text-blue-600 flex-shrink-0`}>
             <ShoppingBag className="w-5 h-5" />
           </div>
           <div>
@@ -926,8 +982,8 @@ export default function SupplyChain() {
             <p className="text-2xl font-bold text-blue-600">{stats.ordered}</p>
           </div>
         </div>
-        <div className="bg-white border rounded-xl px-5 py-4 shadow-sm flex items-center gap-4">
-          <div className="p-2.5 rounded-xl bg-green-50 text-green-600 flex-shrink-0">
+        <div className={`bg-white border rounded-xl shadow-sm flex items-center ${compactMode ? 'px-3 py-2.5 gap-3' : 'px-5 py-4 gap-4'}`}>
+          <div className={`${compactMode ? 'p-2' : 'p-2.5'} rounded-xl bg-green-50 text-green-600 flex-shrink-0`}>
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
@@ -948,20 +1004,37 @@ export default function SupplyChain() {
         </TabsList>
 
         <TabsContent value="po" className="m-0 flex-1 flex flex-col outline-none">
-          <div className="flex gap-2 mb-4">
-            {['all', 'pending', 'ordered', 'partially_received', 'received'].map(opt => (
-              <button 
-                key={opt}
-                onClick={() => setPoFilter(opt)}
-                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all capitalize border ${poFilter === opt ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-              >
-                {opt === 'partially_received' ? 'partially received' : opt}
-              </button>
-            ))}
+          <div className={`flex items-center justify-between ${compactMode ? 'mb-3' : 'mb-4'}`}>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Filter</span>
+              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                {poFilterLabelMap[poFilter] || poFilter}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPoFilters((v) => !v)}
+              className="h-8 rounded-md border border-input bg-background px-3 text-xs font-medium text-foreground hover:bg-muted/50"
+            >
+              {showPoFilters ? 'Hide filters' : 'More filters'}
+            </button>
           </div>
+          {showPoFilters && (
+            <div className={`flex flex-wrap gap-2 ${compactMode ? 'mb-3' : 'mb-4'}`}>
+              {poFilterOptions.map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => setPoFilter(opt)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all capitalize border ${poFilter === opt ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                >
+                  {opt === 'partially_received' ? 'partial' : opt}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="bg-white border rounded-xl shadow-sm flex-1 overflow-y-auto">
-            <table className="w-full text-sm text-left">
+            <table className={`w-full text-sm text-left ${compactTableClass}`}>
               <thead className="bg-slate-50/80 border-b sticky top-0 z-10 backdrop-blur-xl">
                 <tr>
                   <th className="px-5 py-3 font-semibold text-slate-500">PO #</th>
@@ -975,8 +1048,8 @@ export default function SupplyChain() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {loading && <tr><td colSpan={8} className="text-center py-12 text-muted-foreground animate-pulse">Loading orders...</td></tr>}
-                {!loading && filteredPOs.length === 0 && <tr><td colSpan={8} className="text-center py-12 text-muted-foreground">No purchase orders found.</td></tr>}
+                {loading && <tr><td colSpan={8} className={`text-center text-muted-foreground animate-pulse ${compactMode ? 'py-6' : 'py-12'}`}>Loading orders...</td></tr>}
+                {!loading && filteredPOs.length === 0 && <tr><td colSpan={8} className={`text-center text-muted-foreground ${compactMode ? 'py-6' : 'py-12'}`}>No purchase orders yet — create one from New Order.</td></tr>}
                 {filteredPOs.map((po) => (
                   <tr key={po.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-5 py-3 font-bold text-slate-700">
@@ -984,7 +1057,7 @@ export default function SupplyChain() {
                         <span>{po.po_number}</span>
                         {(po.status === 'partially_received' || (po.items || []).some((item) => Number(item.discrepancy || 0) !== 0)) && (
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-orange-100 text-orange-700">
-                            Discrepancy
+                            Qty Diff
                           </span>
                         )}
                       </div>
@@ -1042,7 +1115,7 @@ export default function SupplyChain() {
 
         <TabsContent value="deliveries" className="m-0 flex-1 flex flex-col outline-none">
           <div className="bg-white border rounded-xl shadow-sm flex-1 overflow-y-auto">
-            <table className="w-full text-sm text-left">
+            <table className={`w-full text-sm text-left ${compactTableClass}`}>
               <thead className="bg-slate-50/80 border-b sticky top-0 z-10 backdrop-blur-xl">
                 <tr>
                   <th className="px-5 py-3 font-semibold text-slate-500">Delivery #</th>
@@ -1056,15 +1129,15 @@ export default function SupplyChain() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {loading && <tr><td colSpan={8} className="text-center py-12 text-muted-foreground animate-pulse">Loading deliveries...</td></tr>}
-                {!loading && deliveries.length === 0 && <tr><td colSpan={8} className="p-0"><div className="w-full flex flex-col items-center justify-center gap-2 h-64 text-muted-foreground"><PackageCheck className="w-10 h-10 opacity-20" /> No delivery history yet.</div></td></tr>}
+                {loading && <tr><td colSpan={8} className={`text-center text-muted-foreground animate-pulse ${compactMode ? 'py-6' : 'py-12'}`}>Loading deliveries...</td></tr>}
+                {!loading && deliveries.length === 0 && <tr><td colSpan={8} className={`text-center text-muted-foreground ${compactMode ? 'py-6' : 'py-12'}`}>No deliveries yet — click Record Delivery to add your first entry.</td></tr>}
                 {deliveries.map((del) => (
                   <tr key={del.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => setViewDelivery(del)}>
                     <td className="px-5 py-3 font-bold text-slate-700">
                       <div className="flex items-center gap-2">
                         <span>{del.id}</span>
                         {del.hasDiscrepancy && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-700">Warning</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-700">Qty Diff</span>
                         )}
                         {del.isPartialCompletion && (
                           <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-orange-100 text-orange-700">Completion</span>
@@ -1080,7 +1153,7 @@ export default function SupplyChain() {
                       <div>{del.items?.length || 0} items ({(del.items || []).reduce((sum, item) => sum + Number(item.quantityReceived || 0), 0)} total)</div>
                       {del.items?.some(item => item.expiry_date) && (
                         <div className="mt-1 flex flex-wrap gap-1">
-                          {del.items.filter(item => item.expiry_date).map((item, i) => {
+                          {del.items.filter(item => item.expiry_date).slice(0, 2).map((item, i) => {
                             const exp = new Date(`${item.expiry_date}T00:00:00`)
                             const now = new Date()
                             const daysLeft = Math.ceil((exp - now) / 86400000)
@@ -1091,6 +1164,11 @@ export default function SupplyChain() {
                               </span>
                             )
                           })}
+                          {del.items.filter(item => item.expiry_date).length > 2 && (
+                            <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
+                              +{del.items.filter(item => item.expiry_date).length - 2} more
+                            </span>
+                          )}
                         </div>
                       )}
                     </td>

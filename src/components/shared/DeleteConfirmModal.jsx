@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 
 /**
@@ -10,6 +11,17 @@ import { AlertTriangle } from 'lucide-react'
  *   onCancel   – called when user clicks Cancel
  */
 export default function DeleteConfirmModal({ title, message, onConfirm, onCancel }) {
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onCancel?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onCancel])
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
       <div className="bg-white rounded-xl shadow-xl w-[95vw] max-w-sm mx-4 overflow-hidden">

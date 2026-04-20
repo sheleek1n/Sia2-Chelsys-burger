@@ -11,7 +11,7 @@ const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectr
 const STORAGE_KEY = 'chelsys_burger_data'
 const CURRENT_USER_KEY = 'chelsys_current_user'
 const DEFAULT_UNCATEGORIZED_ID = 7
-const SEED_VERSION = '3'
+const SEED_VERSION = '7'
 
 const DEFAULT_INGREDIENT_CATEGORIES = [
   { id: 1, name: 'Proteins', emoji: '🥩', order: 1 },
@@ -71,7 +71,7 @@ function buildFreshSeed() {
 
   return {
     meta: {
-      seed_version: SEED_VERSION,
+      seed_version: SEED_VERSION, // bump triggers auto-reseed in Electron on next launch
     },
     users: [
       { id: '1', username: 'admin', password: 'admin123', role: 'admin', full_name: 'Admin User' },
@@ -88,7 +88,7 @@ function buildFreshSeed() {
 
       // ── PACK-BASED COUNTABLE (auto-deducted by POS via consume) ────────
       // 1 pack = 1 countable unit. No open_pieces concept (nothing "loose").
-      { id: 'ing_1', name: 'Beef Patty',      unit: 'pcs',        pieces_per_pack: null, current_stock: 48,  open_pieces: 0,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.',   expiry_date: ymd(7),   categoryId: 1 },
+      { id: 'ing_1', name: 'Beef Patty',      unit: 'pcs',        pieces_per_pack: null, current_stock: 12,  open_pieces: 0,  warning_level: 10, cost_per_unit: 45,  supplier: 'Local Meat Co.',   expiry_date: ymd(10),  categoryId: 1 },
 
       // ── BULK / MANUAL-ONLY (NOT in any recipe — not POS-linked) ────────
       // Owner opens a bag/bottle via Production Log when empty; POS never touches these.
@@ -98,24 +98,39 @@ function buildFreshSeed() {
       { id: 'ing_7', name: 'Fries',           unit: '1kg bag',    pieces_per_pack: null, current_stock: 15,  open_pieces: 0,  warning_level: 5,  cost_per_unit: 120, supplier: 'FoodPro',          expiry_date: ymd(90),  categoryId: 5 },
       { id: 'ing_10', name: 'Paper Wrap',     unit: 'roll',       pieces_per_pack: null, current_stock: 10,  open_pieces: 0,  warning_level: 3,  cost_per_unit: 80,  supplier: 'Packaging Co.',    expiry_date: null,     categoryId: 6 },
     ],
-    // Multiple batches per ingredient → FIFO/expiry behavior is visible immediately
+    // ── Stock Batches ─────────────────────────────────────────────────────────
+    // INVARIANT: SUM(batch.quantity where !isExhausted) === ingredient.current_stock
+    // open_pieces comes ONLY from packs that were deducted from a batch (via consume()).
+    // Each entry below is consistent with the ingredient's current_stock + open_pieces above.
     stockBatches: [
-      // Buns: 2 unopened packs batch A (older, closer expiry) + 2 unopened packs batch B
-      { id: 'batch_buns_1', ingredientId: 'ing_2', ingredientName: 'Burger Buns',     quantity: 2, originalQuantity: 5, receivedAt: iso(-5), expiryDate: ymd(3),  deliveryId: null, poNumber: 'PO-0001', supplier: 'Sunrise Bakery', isExhausted: false },
-      { id: 'batch_buns_2', ingredientId: 'ing_2', ingredientName: 'Burger Buns',     quantity: 2, originalQuantity: 2, receivedAt: iso(-1), expiryDate: ymd(7),  deliveryId: null, poNumber: 'PO-0002', supplier: 'Sunrise Bakery', isExhausted: false },
-      // Cheese: single batch
-      { id: 'batch_chs_1',  ingredientId: 'ing_6', ingredientName: 'Cheese Slices',   quantity: 6, originalQuantity: 6, receivedAt: iso(-3), expiryDate: ymd(14), deliveryId: null, poNumber: 'PO-0003', supplier: 'Dairy Best',     isExhausted: false },
-      // Beef: 2 batches
-      { id: 'batch_beef_1', ingredientId: 'ing_1', ingredientName: 'Beef Patty',      quantity: 20, originalQuantity: 30, receivedAt: iso(-4), expiryDate: ymd(5),  deliveryId: null, poNumber: 'PO-0004', supplier: 'Local Meat Co.', isExhausted: false },
-      { id: 'batch_beef_2', ingredientId: 'ing_1', ingredientName: 'Beef Patty',      quantity: 28, originalQuantity: 28, receivedAt: iso(-1), expiryDate: ymd(10), deliveryId: null, poNumber: 'PO-0005', supplier: 'Local Meat Co.', isExhausted: false },
-      // Chicken
-      { id: 'batch_chk_1',  ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', quantity: 8, originalQuantity: 10, receivedAt: iso(-2), expiryDate: ymd(5),  deliveryId: null, poNumber: 'PO-0006', supplier: 'Poultry Farm',   isExhausted: false },
-      // Pack-based: single opening batches
-      { id: 'batch_ket_1',  ingredientId: 'ing_3', ingredientName: 'Ketchup',         quantity: 2, originalQuantity: 4, receivedAt: iso(-10), expiryDate: ymd(60), deliveryId: null, poNumber: 'PO-0007', supplier: 'Condiments Inc.', isExhausted: false },
-      { id: 'batch_may_1',  ingredientId: 'ing_5', ingredientName: 'Mayonnaise',      quantity: 5, originalQuantity: 5, receivedAt: iso(-7),  expiryDate: ymd(30), deliveryId: null, poNumber: 'PO-0008', supplier: 'Condiments Inc.', isExhausted: false },
+      // Burger Buns (ppp=24): current_stock=4, open_pieces=18
+      //   History: batch A received 5 packs → 1 opened manually (batch 5→4, pieces 0→24)
+      //            → 6 pieces used by POS (open_pieces 24→18), batch stays 4
+      //            → 1 more pack auto-opened by POS when pieces ran out earlier cycle (batch 4→3)
+      //            Wait — open_pieces=18 means pieces CAME from batch A's already-opened pack.
+      //   Simpler consistent picture: batch A originally 3 packs, 1 opened → 2 remain (open_pieces=18)
+      //   Batch B: fresh 2 packs received later (no activity)
+      // Buns batch A (older, closer expiry) — 3 received, 1 opened manually → 2 remain
+      { id: 'batch_buns_1', ingredientId: 'ing_2', ingredientName: 'Burger Buns',     quantity: 2, originalQuantity: 3, receivedAt: iso(-5), expiryDate: ymd(3),  deliveryId: 'del_seed_1', poNumber: 'PO-0001', supplier: 'Sunrise Bakery', isExhausted: false },
+      // Buns batch B (newer, longer expiry) — 2 received, none opened
+      { id: 'batch_buns_2', ingredientId: 'ing_2', ingredientName: 'Burger Buns',     quantity: 2, originalQuantity: 2, receivedAt: iso(-1), expiryDate: ymd(7),  deliveryId: 'del_seed_2', poNumber: 'PO-0002', supplier: 'Sunrise Bakery', isExhausted: false },
+      // Cheese — 7 received, 1 opened manually (batch 7→6, open_pieces 0→20, 8 used = 12 remain)
+      { id: 'batch_chs_1',  ingredientId: 'ing_6', ingredientName: 'Cheese Slices',   quantity: 6, originalQuantity: 7, receivedAt: iso(-3), expiryDate: ymd(14), deliveryId: 'del_seed_3', poNumber: 'PO-0003', supplier: 'Dairy Best',     isExhausted: false },
+      // Beef A (older) — 30 received, all 30 consumed over 4 busy days → exhausted
+      { id: 'batch_beef_1', ingredientId: 'ing_1', ingredientName: 'Beef Patty',      quantity: 0,  originalQuantity: 30, receivedAt: iso(-4), expiryDate: ymd(5),  deliveryId: 'del_seed_4', poNumber: 'PO-0004', supplier: 'Local Meat Co.', isExhausted: true  },
+      // Beef B (small top-up) — 16 received yesterday, 4 used already = 12 remain → ~2 days left at current rate
+      { id: 'batch_beef_2', ingredientId: 'ing_1', ingredientName: 'Beef Patty',      quantity: 12, originalQuantity: 16, receivedAt: iso(-1), expiryDate: ymd(10), deliveryId: 'del_seed_5', poNumber: 'PO-0005', supplier: 'Local Meat Co.', isExhausted: false },
+      // Chicken — 10 received, 2 POS auto-opened (consumePieces) = 8 remain; open_pieces=3 from last auto-open
+      { id: 'batch_chk_1',  ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', quantity: 8, originalQuantity: 10, receivedAt: iso(-2), expiryDate: ymd(5),  deliveryId: 'del_seed_6', poNumber: 'PO-0006', supplier: 'Poultry Farm',   isExhausted: false },
+      // Burger Box — 6 received, none opened (open_pieces=0 — staff hasn't opened one yet)
+      { id: 'batch_box_1',  ingredientId: 'ing_9', ingredientName: 'Burger Box',      quantity: 6, originalQuantity: 6,  receivedAt: iso(-14), expiryDate: null,   deliveryId: null, poNumber: 'PO-0010', supplier: 'Packaging Co.',   isExhausted: false },
+      // Bulk/manual-only — batch qty === ingredient current_stock (staff opens manually via Production Log)
+      { id: 'batch_ket_1',  ingredientId: 'ing_3', ingredientName: 'Ketchup',         quantity: 2, originalQuantity: 4, receivedAt: iso(-10), expiryDate: ymd(60),  deliveryId: null, poNumber: 'PO-0007', supplier: 'Condiments Inc.', isExhausted: false },
+      { id: 'batch_may_1',  ingredientId: 'ing_5', ingredientName: 'Mayonnaise',      quantity: 5, originalQuantity: 5, receivedAt: iso(-7),  expiryDate: ymd(30),  deliveryId: null, poNumber: 'PO-0008', supplier: 'Condiments Inc.', isExhausted: false },
       { id: 'batch_fry_1',  ingredientId: 'ing_7', ingredientName: 'Fries',           quantity: 15, originalQuantity: 15, receivedAt: iso(-6), expiryDate: ymd(90), deliveryId: null, poNumber: 'PO-0009', supplier: 'FoodPro',         isExhausted: false },
-      { id: 'batch_box_1',  ingredientId: 'ing_9', ingredientName: 'Burger Box',      quantity: 6, originalQuantity: 6, receivedAt: iso(-14), expiryDate: null,    deliveryId: null, poNumber: 'PO-0010', supplier: 'Packaging Co.',   isExhausted: false },
-      { id: 'batch_wrap_1', ingredientId: 'ing_10', ingredientName: 'Paper Wrap',     quantity: 10, originalQuantity: 10, receivedAt: iso(-20), expiryDate: null, deliveryId: null, poNumber: 'PO-0011', supplier: 'Packaging Co.',   isExhausted: false },
+      { id: 'batch_wrap_1', ingredientId: 'ing_10', ingredientName: 'Paper Wrap',     quantity: 10, originalQuantity: 10, receivedAt: iso(-20), expiryDate: null,   deliveryId: null, poNumber: 'PO-0011', supplier: 'Packaging Co.',   isExhausted: false },
+      // Spicy Sauce — exhausted batch; shows history in Activity Log and Supply Chain
+      { id: 'batch_spi_1',  ingredientId: 'ing_4', ingredientName: 'Spicy Sauce',     quantity: 0, originalQuantity: 3, receivedAt: iso(-30), expiryDate: ymd(45),  deliveryId: null, poNumber: 'PO-0013', supplier: 'Condiments Inc.', isExhausted: true },
     ],
     menuItems: [
       // Recipes contain ONLY countable ingredients (buns, patties, cheese, chicken, box).
@@ -161,155 +176,277 @@ function buildFreshSeed() {
       { id: 'menu_8', name: 'Iced Tea',          category: 'drinks', price: 29,  is_available: true, emoji: '🧋', recipe: [] },
     ],
     orders: [
-      { id: 'seed_ord_1', order_number: 'ORD-100001', cashier_name: 'Maria', total_amount: 218, payment_method: 'cash', status: 'completed', order_date: ymd(0),  created_at: iso(0),
-        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger', quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
-                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)', quantity: 1, unit_price: 39, subtotal: 39, emoji: '🥤' },
-                { menu_item_id: 'menu_5', menu_item_name: 'Fries', quantity: 1, unit_price: 59, subtotal: 59, emoji: '🍟' }] },
-      { id: 'seed_ord_2', order_number: 'ORD-100002', cashier_name: 'Maria', total_amount: 149, payment_method: 'gcash', gcash_reference: '1234567890', status: 'completed', order_date: ymd(0),  created_at: iso(0),
-        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo', quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' }] },
-      { id: 'seed_ord_3', order_number: 'ORD-100003', cashier_name: 'Maria', total_amount: 198, payment_method: 'cash', status: 'completed', order_date: ymd(-1), created_at: iso(-1),
-        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger', quantity: 2, unit_price: 99, subtotal: 198, emoji: '🍔' }] },
-      { id: 'seed_ord_4', order_number: 'ORD-100004', cashier_name: 'Maria', total_amount: 119, payment_method: 'cash', status: 'voided', order_date: ymd(-2), created_at: iso(-2),
+      // ── TODAY (ymd(0)) — ₱1,712 ─────────────────────────────────────────────
+      { id: 'seed_ord_1',  order_number: 'ORD-100001', cashier_name: 'Maria', total_amount: 218, payment_method: 'cash',  status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',        quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',        quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' }] },
+      { id: 'seed_ord_2',  order_number: 'ORD-100002', cashier_name: 'Maria', total_amount: 149, payment_method: 'gcash', gcash_reference: '1234567890', status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        incidentNote: 'Customer returned — wrong size drink given with the combo',
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' }] },
+      { id: 'seed_ord_5',  order_number: 'ORD-100005', cashier_name: 'Admin User', total_amount: 227, payment_method: 'cash',  status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_6',  order_number: 'ORD-100006', cashier_name: 'Maria', total_amount: 238, payment_method: 'gcash', gcash_reference: '9876543210', status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 2, unit_price: 119, subtotal: 238, emoji: '🧀' }] },
+      { id: 'seed_ord_7',  order_number: 'ORD-100007', cashier_name: 'Admin User', total_amount: 267, payment_method: 'cash',  status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      { id: 'seed_ord_8',  order_number: 'ORD-100008', cashier_name: 'Admin User', total_amount: 276, payment_method: 'cash',  status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 2, unit_price: 99,  subtotal: 198, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 2, unit_price: 39,  subtotal: 78,  emoji: '🥤' }] },
+      { id: 'seed_ord_9',  order_number: 'ORD-100009', cashier_name: 'Maria', total_amount: 337, payment_method: 'gcash', gcash_reference: '1122334455', status: 'completed', order_date: ymd(0),  created_at: iso(0),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      // ── YESTERDAY (ymd(-1)) — ₱1,769 ────────────────────────────────────────
+      { id: 'seed_ord_3',  order_number: 'ORD-100003', cashier_name: 'Maria', total_amount: 198, payment_method: 'cash',  status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 2, unit_price: 99,  subtotal: 198, emoji: '🍔' }] },
+      { id: 'seed_ord_10', order_number: 'ORD-100010', cashier_name: 'Maria', total_amount: 197, payment_method: 'cash',  status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 1, unit_price: 99,  subtotal: 99,  emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_11', order_number: 'ORD-100011', cashier_name: 'Admin User', total_amount: 356, payment_method: 'gcash', gcash_reference: '5544332211', status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 2, unit_price: 149, subtotal: 298, emoji: '🍔' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 2, unit_price: 29,  subtotal: 58,  emoji: '🧋' }] },
+      { id: 'seed_ord_12', order_number: 'ORD-100012', cashier_name: 'Admin User', total_amount: 357, payment_method: 'cash',  status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' }] },
+      { id: 'seed_ord_13', order_number: 'ORD-100013', cashier_name: 'Admin User', total_amount: 336, payment_method: 'cash',  status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 3, unit_price: 99,  subtotal: 297, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_14', order_number: 'ORD-100014', cashier_name: 'Maria', total_amount: 325, payment_method: 'gcash', gcash_reference: '6677889900', status: 'completed', order_date: ymd(-1), created_at: iso(-1),
+        items: [{ menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 2, unit_price: 59,  subtotal: 118, emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 2, unit_price: 39,  subtotal: 78,  emoji: '🥤' }] },
+      // ── DAY -2 — ₱1,630 (+ 1 voided) ───────────────────────────────────────
+      { id: 'seed_ord_4',  order_number: 'ORD-100004', cashier_name: 'Maria', total_amount: 119, payment_method: 'cash',  status: 'voided',    order_date: ymd(-2), created_at: iso(-2),
         voidNote: 'Customer changed mind before pickup', voidedAt: iso(-2), voidedBy: 'Admin User',
-        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger', quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' }] },
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' }] },
+      { id: 'seed_ord_15', order_number: 'ORD-100015', cashier_name: 'Maria', total_amount: 296, payment_method: 'cash',  status: 'completed', order_date: ymd(-2), created_at: iso(-2),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 2, unit_price: 119, subtotal: 238, emoji: '🧀' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 2, unit_price: 29,  subtotal: 58,  emoji: '🧋' }] },
+      { id: 'seed_ord_16', order_number: 'ORD-100016', cashier_name: 'Admin User', total_amount: 336, payment_method: 'cash',  status: 'completed', order_date: ymd(-2), created_at: iso(-2),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 2, unit_price: 59,  subtotal: 118, emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_17', order_number: 'ORD-100017', cashier_name: 'Maria', total_amount: 317, payment_method: 'gcash', gcash_reference: '1029384756', status: 'completed', order_date: ymd(-2), created_at: iso(-2),
+        items: [{ menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' },
+                { menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_18', order_number: 'ORD-100018', cashier_name: 'Admin User', total_amount: 474, payment_method: 'cash',  status: 'completed', order_date: ymd(-2), created_at: iso(-2),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 4, unit_price: 99,  subtotal: 396, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 2, unit_price: 39,  subtotal: 78,  emoji: '🥤' }] },
+      { id: 'seed_ord_19', order_number: 'ORD-100019', cashier_name: 'Maria', total_amount: 207, payment_method: 'cash',  status: 'completed', order_date: ymd(-2), created_at: iso(-2),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      // ── DAY -3 — ₱1,632 ─────────────────────────────────────────────────────
+      { id: 'seed_ord_20', order_number: 'ORD-100020', cashier_name: 'Maria', total_amount: 188, payment_method: 'cash',  status: 'completed', order_date: ymd(-3), created_at: iso(-3),
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_21', order_number: 'ORD-100021', cashier_name: 'Admin User', total_amount: 476, payment_method: 'gcash', gcash_reference: '5647382910', status: 'completed', order_date: ymd(-3), created_at: iso(-3),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 2, unit_price: 179, subtotal: 358, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 2, unit_price: 59,  subtotal: 118, emoji: '🍟' }] },
+      { id: 'seed_ord_22', order_number: 'ORD-100022', cashier_name: 'Maria', total_amount: 257, payment_method: 'cash',  status: 'completed', order_date: ymd(-3), created_at: iso(-3),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 1, unit_price: 99,  subtotal: 99,  emoji: '🍔' },
+                { menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      { id: 'seed_ord_23', order_number: 'ORD-100023', cashier_name: 'Admin User', total_amount: 474, payment_method: 'cash',  status: 'completed', order_date: ymd(-3), created_at: iso(-3),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 3, unit_price: 119, subtotal: 357, emoji: '🧀' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 3, unit_price: 39,  subtotal: 117, emoji: '🥤' }] },
+      { id: 'seed_ord_24', order_number: 'ORD-100024', cashier_name: 'Maria', total_amount: 237, payment_method: 'cash',  status: 'completed', order_date: ymd(-3), created_at: iso(-3),
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      // ── DAY -4 — ₱1,652 ─────────────────────────────────────────────────────
+      { id: 'seed_ord_25', order_number: 'ORD-100025', cashier_name: 'Maria', total_amount: 335, payment_method: 'cash',  status: 'completed', order_date: ymd(-4), created_at: iso(-4),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 2, unit_price: 99,  subtotal: 198, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 2, unit_price: 39,  subtotal: 78,  emoji: '🥤' }] },
+      { id: 'seed_ord_26', order_number: 'ORD-100026', cashier_name: 'Admin User', total_amount: 308, payment_method: 'gcash', gcash_reference: '1928374650', status: 'completed', order_date: ymd(-4), created_at: iso(-4),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' }] },
+      { id: 'seed_ord_27', order_number: 'ORD-100027', cashier_name: 'Maria', total_amount: 217, payment_method: 'cash',  status: 'completed', order_date: ymd(-4), created_at: iso(-4),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_28', order_number: 'ORD-100028', cashier_name: 'Admin User', total_amount: 476, payment_method: 'cash',  status: 'completed', order_date: ymd(-4), created_at: iso(-4),
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 3, unit_price: 149, subtotal: 447, emoji: '🍔' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      { id: 'seed_ord_29', order_number: 'ORD-100029', cashier_name: 'Maria', total_amount: 316, payment_method: 'gcash', gcash_reference: '0918273645', status: 'completed', order_date: ymd(-4), created_at: iso(-4),
+        items: [{ menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 2, unit_price: 129, subtotal: 258, emoji: '🐔' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 2, unit_price: 29,  subtotal: 58,  emoji: '🧋' }] },
+      // ── DAY -5 — ₱1,454 ─────────────────────────────────────────────────────
+      { id: 'seed_ord_30', order_number: 'ORD-100030', cashier_name: 'Maria', total_amount: 277, payment_method: 'cash',  status: 'completed', order_date: ymd(-5), created_at: iso(-5),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 1, unit_price: 99,  subtotal: 99,  emoji: '🍔' },
+                { menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' }] },
+      { id: 'seed_ord_31', order_number: 'ORD-100031', cashier_name: 'Maria', total_amount: 337, payment_method: 'cash',  status: 'completed', order_date: ymd(-5), created_at: iso(-5),
+        items: [{ menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 2, unit_price: 149, subtotal: 298, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_32', order_number: 'ORD-100032', cashier_name: 'Admin User', total_amount: 257, payment_method: 'gcash', gcash_reference: '5566778899', status: 'completed', order_date: ymd(-5), created_at: iso(-5),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 2, unit_price: 39,  subtotal: 78,  emoji: '🥤' }] },
+      { id: 'seed_ord_33', order_number: 'ORD-100033', cashier_name: 'Admin User', total_amount: 376, payment_method: 'cash',  status: 'completed', order_date: ymd(-5), created_at: iso(-5),
+        items: [{ menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 2, unit_price: 129, subtotal: 258, emoji: '🐔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 2, unit_price: 59,  subtotal: 118, emoji: '🍟' }] },
+      { id: 'seed_ord_34', order_number: 'ORD-100034', cashier_name: 'Maria', total_amount: 207, payment_method: 'cash',  status: 'completed', order_date: ymd(-5), created_at: iso(-5),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 1, unit_price: 119, subtotal: 119, emoji: '🧀' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 1, unit_price: 29,  subtotal: 29,  emoji: '🧋' }] },
+      // ── DAY -6 — ₱1,502 ─────────────────────────────────────────────────────
+      { id: 'seed_ord_35', order_number: 'ORD-100035', cashier_name: 'Maria', total_amount: 256, payment_method: 'cash',  status: 'completed', order_date: ymd(-6), created_at: iso(-6),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 2, unit_price: 99,  subtotal: 198, emoji: '🍔' },
+                { menu_item_id: 'menu_8', menu_item_name: 'Iced Tea',              quantity: 2, unit_price: 29,  subtotal: 58,  emoji: '🧋' }] },
+      { id: 'seed_ord_36', order_number: 'ORD-100036', cashier_name: 'Maria', total_amount: 277, payment_method: 'cash',  status: 'completed', order_date: ymd(-6), created_at: iso(-6),
+        items: [{ menu_item_id: 'menu_3', menu_item_name: 'Double Cheese Burger',  quantity: 1, unit_price: 179, subtotal: 179, emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 1, unit_price: 59,  subtotal: 59,  emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
+      { id: 'seed_ord_37', order_number: 'ORD-100037', cashier_name: 'Admin User', total_amount: 278, payment_method: 'gcash', gcash_reference: '1357924680', status: 'completed', order_date: ymd(-6), created_at: iso(-6),
+        items: [{ menu_item_id: 'menu_4', menu_item_name: 'Chicken Burger',        quantity: 1, unit_price: 129, subtotal: 129, emoji: '🐔' },
+                { menu_item_id: 'menu_6', menu_item_name: 'Burger + Fries Combo',  quantity: 1, unit_price: 149, subtotal: 149, emoji: '🍔' }] },
+      { id: 'seed_ord_38', order_number: 'ORD-100038', cashier_name: 'Admin User', total_amount: 435, payment_method: 'cash',  status: 'completed', order_date: ymd(-6), created_at: iso(-6),
+        items: [{ menu_item_id: 'menu_2', menu_item_name: 'Cheese Burger',         quantity: 3, unit_price: 119, subtotal: 357, emoji: '🧀' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 2, unit_price: 39,  subtotal: 78,  emoji: '🥤' }] },
+      { id: 'seed_ord_39', order_number: 'ORD-100039', cashier_name: 'Maria', total_amount: 256, payment_method: 'cash',  status: 'completed', order_date: ymd(-6), created_at: iso(-6),
+        items: [{ menu_item_id: 'menu_1', menu_item_name: 'Classic Burger',        quantity: 1, unit_price: 99,  subtotal: 99,  emoji: '🍔' },
+                { menu_item_id: 'menu_5', menu_item_name: 'Fries',                 quantity: 2, unit_price: 59,  subtotal: 118, emoji: '🍟' },
+                { menu_item_id: 'menu_7', menu_item_name: 'Coke (Regular)',         quantity: 1, unit_price: 39,  subtotal: 39,  emoji: '🥤' }] },
     ],
+    // ── Purchase Orders ────────────────────────────────────────────────────────
+    // PO IDs referenced in batches: PO-0001..PO-0006, PO-0011 (packaging)
     purchaseOrders: [
-      {
-        id: 'po_seed_1',
-        po_number: 'PO-0001',
-        supplier: 'Sunrise Bakery',
-        status: 'received',
-        notes: 'Weekly buns replenishment',
-        created_at: iso(-7),
-        updated_at: iso(-5),
-        received_at: iso(-5),
-        received_by: 'Admin',
+      // Buns: 2 POs = 2 separate shipments → shows FIFO across batches in Production Log
+      { id: 'po_seed_1', po_number: 'PO-0001', supplier: 'Sunrise Bakery', status: 'received',
+        notes: 'Weekly buns order', created_at: iso(-7), updated_at: iso(-5), received_at: iso(-5), received_by: 'Admin User',
+        items: [{ ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 3, quantityReceived: 3, unitCost: 8, totalCost: 24, discrepancy: 0, expiry_date: ymd(3) }] },
+      { id: 'po_seed_2', po_number: 'PO-0002', supplier: 'Sunrise Bakery', status: 'received',
+        notes: 'Top-up order', created_at: iso(-2), updated_at: iso(-1), received_at: iso(-1), received_by: 'Admin User',
+        items: [{ ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 2, quantityReceived: 2, unitCost: 8, totalCost: 16, discrepancy: 0, expiry_date: ymd(7) }] },
+      // Cheese: 7 packs received (1 opened, 6 remain as stock)
+      { id: 'po_seed_3', po_number: 'PO-0003', supplier: 'Dairy Best', status: 'received',
+        notes: null, created_at: iso(-5), updated_at: iso(-3), received_at: iso(-3), received_by: 'Admin User',
+        items: [{ ingredientId: 'ing_6', ingredientName: 'Cheese Slices', unit: 'pack of 20', quantityOrdered: 7, quantityReceived: 7, unitCost: 75, totalCost: 525, discrepancy: 0, expiry_date: ymd(14) }] },
+      // Beef: 2 separate POs, 2 batches → FIFO demo with different expiry dates
+      { id: 'po_seed_4', po_number: 'PO-0004', supplier: 'Local Meat Co.', status: 'received',
+        notes: 'Bulk weekly order', created_at: iso(-6), updated_at: iso(-4), received_at: iso(-4), received_by: 'Admin User',
+        items: [{ ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 30, quantityReceived: 30, unitCost: 45, totalCost: 1350, discrepancy: 0, expiry_date: ymd(5) }] },
+      { id: 'po_seed_5', po_number: 'PO-0005', supplier: 'Local Meat Co.', status: 'received',
+        notes: 'Small top-up — running low on beef', created_at: iso(-2), updated_at: iso(-1), received_at: iso(-1), received_by: 'Admin User',
+        items: [{ ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 16, quantityReceived: 16, unitCost: 45, totalCost: 720, discrepancy: 0, expiry_date: ymd(10) }] },
+      // Chicken: partial — ordered 10, received 8 → demo discrepancy + partially_received status
+      { id: 'po_seed_6', po_number: 'PO-0006', supplier: 'Poultry Farm', status: 'partially_received',
+        notes: 'Supplier delivered 2 packs less — credit pending', created_at: iso(-4), updated_at: iso(-2), received_at: iso(-2), received_by: 'Admin User',
+        items: [{ ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', unit: 'pack of 10', quantityOrdered: 10, quantityReceived: 8, unitCost: 450, totalCost: 3600, discrepancy: -2, expiry_date: ymd(5) }] },
+      // Pending PO — demo "Ordered" status and upcoming delivery
+      { id: 'po_seed_12', po_number: 'PO-0012', supplier: 'Condiments Inc.', status: 'ordered',
+        notes: 'Urgent — Spicy Sauce is at zero', created_at: iso(-1), updated_at: iso(-1), received_at: null, received_by: null,
         items: [
-          { ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 5, quantityReceived: 5, unitCost: 8, totalCost: 40, discrepancy: 0, expiry_date: ymd(3) },
-        ],
-      },
-      {
-        id: 'po_seed_2',
-        po_number: 'PO-0002',
-        supplier: 'Dairy Best',
-        status: 'received',
-        notes: 'Cheese restock',
-        created_at: iso(-6),
-        updated_at: iso(-3),
-        received_at: iso(-3),
-        received_by: 'Admin',
-        items: [
-          { ingredientId: 'ing_6', ingredientName: 'Cheese Slices', unit: 'pack of 20', quantityOrdered: 6, quantityReceived: 6, unitCost: 75, totalCost: 450, discrepancy: 0, expiry_date: ymd(14) },
-        ],
-      },
-      {
-        id: 'po_seed_3',
-        po_number: 'PO-0003',
-        supplier: 'Local Meat Co.',
-        status: 'received',
-        notes: 'Beef patties (standard cycle)',
-        created_at: iso(-5),
-        updated_at: iso(-4),
-        received_at: iso(-4),
-        received_by: 'Admin',
-        items: [
-          { ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 30, quantityReceived: 30, unitCost: 45, totalCost: 1350, discrepancy: 0, expiry_date: ymd(5) },
-        ],
-      },
-      {
-        id: 'po_seed_4',
-        po_number: 'PO-0004',
-        supplier: 'Poultry Farm',
-        status: 'partially_received',
-        notes: 'Short-shipped by supplier',
-        created_at: iso(-4),
-        updated_at: iso(-2),
-        received_at: iso(-2),
-        received_by: 'Admin',
-        items: [
-          { ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', unit: 'pack of 10', quantityOrdered: 10, quantityReceived: 8, unitCost: 450, totalCost: 3600, discrepancy: -2, expiry_date: ymd(5) },
-        ],
-      },
-      {
-        id: 'po_seed_12',
-        po_number: 'PO-0012',
-        supplier: 'Condiments Inc.',
-        status: 'pending',
-        notes: 'Pending schedule confirmation',
-        created_at: iso(-1),
-        updated_at: iso(-1),
-        received_at: null,
-        received_by: null,
-        items: [
-          { ingredientId: 'ing_3', ingredientName: 'Ketchup', unit: '1kg bag', quantityOrdered: 4, quantityReceived: 0, unitCost: 120, totalCost: 480, discrepancy: -4, expiry_date: null },
-        ],
-      },
+          { ingredientId: 'ing_4', ingredientName: 'Spicy Sauce', unit: '1kg bag', quantityOrdered: 5, quantityReceived: 0, unitCost: 95, totalCost: 475, discrepancy: 0, expiry_date: null },
+          { ingredientId: 'ing_3', ingredientName: 'Ketchup', unit: '1kg bag', quantityOrdered: 4, quantityReceived: 0, unitCost: 120, totalCost: 480, discrepancy: 0, expiry_date: null },
+        ] },
     ],
+
+    // ── Deliveries (linked to POs above and batches below) ─────────────────────
+    // purchaseOrderId   = display string (po_number, e.g. 'PO-0001')
+    // purchaseOrderRefId = internal lookup ID (po.id, e.g. 'po_seed_1')
     deliveries: [
-      {
-        id: 'del_seed_1',
-        supplier: 'Sunrise Bakery',
-        receivedAt: iso(-5),
-        receivedBy: 'Admin',
-        notes: 'Full delivery for buns',
-        purchaseOrderId: 'PO-0001',
-        purchaseOrderRefId: 'po_seed_1',
-        hasDiscrepancy: false,
-        isPartialCompletion: false,
-        parentDeliveryId: null,
-        totalValue: 40,
-        items: [
-          { ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 5, quantityReceived: 5, unitCost: 8, totalCost: 40, expiry_date: ymd(3), discrepancy: 0 },
-        ],
-      },
-      {
-        id: 'del_seed_2',
-        supplier: 'Local Meat Co.',
-        receivedAt: iso(-4),
-        receivedBy: 'Admin',
-        notes: 'Full delivery for beef patties',
-        purchaseOrderId: 'PO-0003',
-        purchaseOrderRefId: 'po_seed_3',
-        hasDiscrepancy: false,
-        isPartialCompletion: false,
-        parentDeliveryId: null,
-        totalValue: 1350,
-        items: [
-          { ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 30, quantityReceived: 30, unitCost: 45, totalCost: 1350, expiry_date: ymd(5), discrepancy: 0 },
-        ],
-      },
-      {
-        id: 'del_seed_3',
-        supplier: 'Poultry Farm',
-        receivedAt: iso(-2),
-        receivedBy: 'Admin',
-        notes: 'Supplier short-shipped 2 packs',
-        purchaseOrderId: 'PO-0004',
-        purchaseOrderRefId: 'po_seed_4',
-        hasDiscrepancy: true,
-        isPartialCompletion: false,
-        parentDeliveryId: null,
-        totalValue: 3600,
-        items: [
-          { ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', unit: 'pack of 10', quantityOrdered: 10, quantityReceived: 8, unitCost: 450, totalCost: 3600, expiry_date: ymd(5), discrepancy: -2 },
-        ],
-      },
+      { id: 'del_seed_1', supplier: 'Sunrise Bakery', receivedAt: iso(-5), receivedBy: 'Admin User',
+        notes: null, purchaseOrderId: 'PO-0001', purchaseOrderRefId: 'po_seed_1',
+        hasDiscrepancy: false, isPartialCompletion: false, parentDeliveryId: null, totalValue: 24,
+        items: [{ ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 3, quantityReceived: 3, unitCost: 8, totalCost: 24, expiry_date: ymd(3), discrepancy: 0 }] },
+      { id: 'del_seed_2', supplier: 'Sunrise Bakery', receivedAt: iso(-1), receivedBy: 'Admin User',
+        notes: null, purchaseOrderId: 'PO-0002', purchaseOrderRefId: 'po_seed_2',
+        hasDiscrepancy: false, isPartialCompletion: false, parentDeliveryId: null, totalValue: 16,
+        items: [{ ingredientId: 'ing_2', ingredientName: 'Burger Buns', unit: 'pack of 24', quantityOrdered: 2, quantityReceived: 2, unitCost: 8, totalCost: 16, expiry_date: ymd(7), discrepancy: 0 }] },
+      { id: 'del_seed_3', supplier: 'Dairy Best', receivedAt: iso(-3), receivedBy: 'Admin User',
+        notes: null, purchaseOrderId: 'PO-0003', purchaseOrderRefId: 'po_seed_3',
+        hasDiscrepancy: false, isPartialCompletion: false, parentDeliveryId: null, totalValue: 525,
+        items: [{ ingredientId: 'ing_6', ingredientName: 'Cheese Slices', unit: 'pack of 20', quantityOrdered: 7, quantityReceived: 7, unitCost: 75, totalCost: 525, expiry_date: ymd(14), discrepancy: 0 }] },
+      { id: 'del_seed_4', supplier: 'Local Meat Co.', receivedAt: iso(-4), receivedBy: 'Admin User',
+        notes: null, purchaseOrderId: 'PO-0004', purchaseOrderRefId: 'po_seed_4',
+        hasDiscrepancy: false, isPartialCompletion: false, parentDeliveryId: null, totalValue: 1350,
+        items: [{ ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 30, quantityReceived: 30, unitCost: 45, totalCost: 1350, expiry_date: ymd(5), discrepancy: 0 }] },
+      { id: 'del_seed_5', supplier: 'Local Meat Co.', receivedAt: iso(-1), receivedBy: 'Admin User',
+        notes: null, purchaseOrderId: 'PO-0005', purchaseOrderRefId: 'po_seed_5',
+        hasDiscrepancy: false, isPartialCompletion: false, parentDeliveryId: null, totalValue: 720,
+        items: [{ ingredientId: 'ing_1', ingredientName: 'Beef Patty', unit: 'pcs', quantityOrdered: 16, quantityReceived: 16, unitCost: 45, totalCost: 720, expiry_date: ymd(10), discrepancy: 0 }] },
+      { id: 'del_seed_6', supplier: 'Poultry Farm', receivedAt: iso(-2), receivedBy: 'Admin User',
+        notes: 'Short by 2 — supplier confirmed credit', purchaseOrderId: 'PO-0006', purchaseOrderRefId: 'po_seed_6',
+        hasDiscrepancy: true, isPartialCompletion: false, parentDeliveryId: null, totalValue: 3600,
+        items: [{ ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', unit: 'pack of 10', quantityOrdered: 10, quantityReceived: 8, unitCost: 450, totalCost: 3600, expiry_date: ymd(5), discrepancy: -2 }] },
     ],
-    stockLogs: [],
-    savedSuppliers: [
-      'Sunrise Bakery',
-      'Dairy Best',
-      'Local Meat Co.',
-      'Poultry Farm',
-      'Condiments Inc.',
-      'FoodPro',
-      'Packaging Co.',
+
+    // ── Stock Consumption Logs (last 7 days) ──────────────────────────────────
+    // Powers the projected runout forecast widget on the Dashboard.
+    // One entry per ingredient per day — reflects realistic daily POS usage.
+    //   Beef Patty:     7/day →  49 total → current_stock=12 → ~2 days  (🔴 RED)
+    //   Burger Buns:   24/day → 168 total → 4×24+18=114 pcs  → ~5 days  (🟠 ORANGE)
+    //   Cheese Slices: 12/day →  84 total → 6×20+12=132 pcs  → ~11 days (🟡 YELLOW)
+    //   Chicken:        8/day →  56 total → 8×10+3 =83 pcs   → ~10 days (🟡 YELLOW)
+    //   Burger Box:    16/day → 112 total → 6×50   =300 pcs  → ~19 days (🟡 YELLOW)
+    stockLogs: [
+      // ── Beef Patty (pack-based, action:'consumed') ───────────────────────────
+      { id: 'sl_bf1', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -7,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-6) },
+      { id: 'sl_bf2', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-5) },
+      { id: 'sl_bf3', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -7,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-4) },
+      { id: 'sl_bf4', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-3) },
+      { id: 'sl_bf5', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -7,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-2) },
+      { id: 'sl_bf6', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-1) },
+      { id: 'sl_bf7', itemId: 'ing_1', itemName: 'Beef Patty', action: 'consumed', quantity: -4,  note: 'POS orders', loggedBy: 'System', createdAt: iso(0) },
+      // ── Burger Buns (piece-tracked, action:'pieces_consumed') ────────────────
+      { id: 'sl_bn1', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -24, note: 'POS orders', loggedBy: 'System', createdAt: iso(-6) },
+      { id: 'sl_bn2', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -24, note: 'POS orders', loggedBy: 'System', createdAt: iso(-5) },
+      { id: 'sl_bn3', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -24, note: 'POS orders', loggedBy: 'System', createdAt: iso(-4) },
+      { id: 'sl_bn4', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -24, note: 'POS orders', loggedBy: 'System', createdAt: iso(-3) },
+      { id: 'sl_bn5', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -24, note: 'POS orders', loggedBy: 'System', createdAt: iso(-2) },
+      { id: 'sl_bn6', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -24, note: 'POS orders', loggedBy: 'System', createdAt: iso(-1) },
+      { id: 'sl_bn7', itemId: 'ing_2', itemName: 'Burger Buns', action: 'pieces_consumed', quantity: -14, note: 'POS orders', loggedBy: 'System', createdAt: iso(0) },
+      // ── Cheese Slices (piece-tracked, action:'pieces_consumed') ─────────────
+      { id: 'sl_cs1', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -12, note: 'POS orders', loggedBy: 'System', createdAt: iso(-6) },
+      { id: 'sl_cs2', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -12, note: 'POS orders', loggedBy: 'System', createdAt: iso(-5) },
+      { id: 'sl_cs3', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -12, note: 'POS orders', loggedBy: 'System', createdAt: iso(-4) },
+      { id: 'sl_cs4', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -12, note: 'POS orders', loggedBy: 'System', createdAt: iso(-3) },
+      { id: 'sl_cs5', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -12, note: 'POS orders', loggedBy: 'System', createdAt: iso(-2) },
+      { id: 'sl_cs6', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -12, note: 'POS orders', loggedBy: 'System', createdAt: iso(-1) },
+      { id: 'sl_cs7', itemId: 'ing_6', itemName: 'Cheese Slices', action: 'pieces_consumed', quantity: -7,  note: 'POS orders', loggedBy: 'System', createdAt: iso(0) },
+      // ── Chicken Fillets (piece-tracked, action:'pieces_consumed') ────────────
+      { id: 'sl_ck1', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-6) },
+      { id: 'sl_ck2', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-5) },
+      { id: 'sl_ck3', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-4) },
+      { id: 'sl_ck4', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-3) },
+      { id: 'sl_ck5', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-2) },
+      { id: 'sl_ck6', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(-1) },
+      { id: 'sl_ck7', itemId: 'ing_8', itemName: 'Chicken Fillets', action: 'pieces_consumed', quantity: -4,  note: 'POS orders', loggedBy: 'System', createdAt: iso(0) },
+      // ── Burger Box (piece-tracked, action:'pieces_consumed') ─────────────────
+      { id: 'sl_bx1', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -16, note: 'POS orders', loggedBy: 'System', createdAt: iso(-6) },
+      { id: 'sl_bx2', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -16, note: 'POS orders', loggedBy: 'System', createdAt: iso(-5) },
+      { id: 'sl_bx3', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -16, note: 'POS orders', loggedBy: 'System', createdAt: iso(-4) },
+      { id: 'sl_bx4', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -16, note: 'POS orders', loggedBy: 'System', createdAt: iso(-3) },
+      { id: 'sl_bx5', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -16, note: 'POS orders', loggedBy: 'System', createdAt: iso(-2) },
+      { id: 'sl_bx6', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -16, note: 'POS orders', loggedBy: 'System', createdAt: iso(-1) },
+      { id: 'sl_bx7', itemId: 'ing_9', itemName: 'Burger Box', action: 'pieces_consumed', quantity: -8,  note: 'POS orders', loggedBy: 'System', createdAt: iso(0) },
     ],
+    savedSuppliers: ['Sunrise Bakery', 'Dairy Best', 'Local Meat Co.', 'Poultry Farm', 'Condiments Inc.', 'FoodPro', 'Packaging Co.'],
+
+    // ── Inventory Logs ─────────────────────────────────────────────────────────
+    // Includes deliveries, manual pack opens, and low-stock alerts for a rich Activity Log demo.
+    // previousValue → newValue rendered as "Before → After" in the Activity Log UI.
     inventoryLogs: [
-      { id: 'log_seed_1', createdAt: iso(-5), action: 'delivery_received', ingredientId: 'ing_2', ingredientName: 'Burger Buns', performedBy: 'Admin', details: 'Received 5 packs of Burger Buns (PO-0001)', newValue: '5 packs', severity: 'info' },
-      { id: 'log_seed_2', createdAt: iso(-4), action: 'delivery_received', ingredientId: 'ing_1', ingredientName: 'Beef Patty', performedBy: 'Admin', details: 'Received 30 pcs of Beef Patty (PO-0003)', newValue: '30 pcs', severity: 'info' },
-      { id: 'log_seed_3', createdAt: iso(-2), action: 'delivery_received', ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', performedBy: 'Admin', details: 'Received 8 packs of Chicken Fillets (PO-0004)', newValue: '8 packs', severity: 'info' },
-      { id: 'log_seed_4', createdAt: iso(-2), action: 'delivery_discrepancy', ingredientId: 'ing_8', ingredientName: 'Chicken Fillets', performedBy: 'Admin', details: 'Short delivery - ordered 10, received 8 (short by 2)', previousValue: '10 ordered', newValue: '8 received', severity: 'warning' },
+      { id: 'log_s1',  createdAt: iso(-7), action: 'delivery_received',   ingredientId: 'ing_2', ingredientName: 'Burger Buns',    performedBy: 'Admin User', details: 'Received 3 packs via PO-0001',    previousValue: '0 packs',  newValue: '3 packs',  severity: 'info' },
+      { id: 'log_s2',  createdAt: iso(-6), action: 'delivery_received',   ingredientId: 'ing_6', ingredientName: 'Cheese Slices',  performedBy: 'Admin User', details: 'Received 7 packs via PO-0003',    previousValue: '0 packs',  newValue: '7 packs',  severity: 'info' },
+      { id: 'log_s3',  createdAt: iso(-5), action: 'pack_opened',         ingredientId: 'ing_6', ingredientName: 'Cheese Slices',  performedBy: 'Admin User', details: 'Admin User opened 1 pack of Cheese Slices: 7 → 6 unopened, 0 → 20 open pieces', previousValue: '7 unopened + 0 open pieces', newValue: '6 unopened + 20 open pieces', severity: 'info' },
+      { id: 'log_s4',  createdAt: iso(-4), action: 'delivery_received',   ingredientId: 'ing_1', ingredientName: 'Beef Patty',     performedBy: 'Admin User', details: 'Received 30 pcs via PO-0004',     previousValue: '0 pcs',    newValue: '30 pcs',   severity: 'info' },
+      { id: 'log_s5',  createdAt: iso(-3), action: 'pack_opened',         ingredientId: 'ing_2', ingredientName: 'Burger Buns',    performedBy: 'Maria',      details: 'Maria opened 1 pack of Burger Buns: 3 → 2 unopened, 0 → 24 open pieces',         previousValue: '3 unopened + 0 open pieces',  newValue: '2 unopened + 24 open pieces',  severity: 'info' },
+      { id: 'log_s6',  createdAt: iso(-2), action: 'delivery_received',   ingredientId: 'ing_8', ingredientName: 'Chicken Fillets',performedBy: 'Admin User', details: 'Received 8 packs via PO-0006 (2 packs short — credit pending)', previousValue: '0 packs', newValue: '8 packs', severity: 'info' },
+      { id: 'log_s7',  createdAt: iso(-2), action: 'low_stock',           ingredientId: 'ing_4', ingredientName: 'Spicy Sauce',    performedBy: 'System',     details: 'Spicy Sauce is OUT OF STOCK — reorder immediately', previousValue: '3 bags', newValue: '0 bags',  severity: 'critical' },
+      { id: 'log_s8',  createdAt: iso(-1), action: 'delivery_received',   ingredientId: 'ing_1', ingredientName: 'Beef Patty',     performedBy: 'Admin User', details: 'Received 16 pcs via PO-0005 (beef stock running low)',     previousValue: '0 pcs', newValue: '16 pcs',  severity: 'info' },
+      { id: 'log_s9',  createdAt: iso(-1), action: 'delivery_received',   ingredientId: 'ing_2', ingredientName: 'Burger Buns',    performedBy: 'Admin User', details: 'Received 2 packs via PO-0002',    previousValue: '2 packs', newValue: '4 packs',  severity: 'info' },
+      { id: 'log_s10', createdAt: iso(-1), action: 'low_stock',           ingredientId: 'ing_3', ingredientName: 'Ketchup',        performedBy: 'System',     details: 'Ketchup is below warning level — only 2 bags left', previousValue: '4 bags', newValue: '2 bags', severity: 'warning' },
     ],
   }
 }
@@ -440,24 +577,29 @@ if (db.stockBatches.length === 0 && (db.ingredients || []).some((i) => (i.curren
 }
 
 // ── FIFO helpers ──────────────────────────────────────────────────────────
+// Returns array of { batchId, qty, expiryDate } consumed — used for order-to-batch linking (#5)
 function deductFIFO(ingredientId, quantityToDeduct) {
   const batches = (db.stockBatches || [])
     .filter((b) => b.ingredientId === ingredientId && !b.isExhausted)
     .sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt))
 
+  const consumed = []
   let remaining = quantityToDeduct
   for (const batch of batches) {
     if (remaining <= 0) break
     if (batch.quantity >= remaining) {
       batch.quantity -= remaining
       if (batch.quantity === 0) batch.isExhausted = true
+      consumed.push({ batchId: batch.id, qty: remaining, expiryDate: batch.expiryDate || null })
       remaining = 0
     } else {
+      consumed.push({ batchId: batch.id, qty: batch.quantity, expiryDate: batch.expiryDate || null })
       remaining -= batch.quantity
       batch.quantity = 0
       batch.isExhausted = true
     }
   }
+  return consumed
 }
 
 function recalculateStock(ingredientId) {
@@ -680,6 +822,96 @@ export const api = {
       save(db)
       return Promise.resolve(row)
     },
+
+    // Cancel an order AND reverse all stock deductions back to inventory.
+    // Piece-tracked ingredients: pieces returned to open_pieces (pack is already open).
+    // Pack-based ingredients: quantity added back via a new reversal batch.
+    voidWithReversal(orderId, { voidedBy, voidNote } = {}) {
+      db.orders = db.orders || []
+      const orderIndex = db.orders.findIndex((o) => o.id === orderId)
+      if (orderIndex < 0) return Promise.reject(new Error('Order not found'))
+      const order = db.orders[orderIndex]
+      if (order.status === 'voided') return Promise.reject(new Error('Order is already cancelled'))
+
+      // Build reversal plan: accumulate ingredient quantities consumed by this order's recipes
+      const reversals = {} // ingredientId → total qty to return
+      for (const cartItem of order.items || []) {
+        const menuItem = (db.menuItems || []).find((m) => m.id === cartItem.menu_item_id)
+        if (!menuItem?.recipe?.length) continue
+        for (const r of menuItem.recipe) {
+          reversals[r.ingredientId] = (reversals[r.ingredientId] || 0) + r.qty * (cartItem.quantity || 1)
+        }
+      }
+
+      db.ingredients = db.ingredients || []
+      db.stockBatches = db.stockBatches || []
+      db.inventoryLogs = db.inventoryLogs || []
+
+      for (const [ingredientId, qty] of Object.entries(reversals)) {
+        const i = db.ingredients.findIndex((x) => x.id === ingredientId)
+        if (i < 0) continue
+        const item = db.ingredients[i]
+        const ppp = item.pieces_per_pack && item.pieces_per_pack > 1 ? item.pieces_per_pack : null
+        const oldStock = item.current_stock || 0
+        const oldOpen = item.open_pieces || 0
+
+        if (ppp) {
+          // Piece-tracked: pieces go back to open_pieces (physically the pack is already open)
+          const newOpenPieces = oldOpen + qty
+          db.ingredients[i] = { ...item, open_pieces: newOpenPieces }
+          createLog({
+            action: 'stock_adjusted',
+            ingredientId,
+            ingredientName: item.name,
+            performedBy: voidedBy || 'Admin',
+            details: `+${qty} pieces returned — order ${order.order_number} cancelled`,
+            previousValue: `${oldStock} packs, ${oldOpen} open pieces`,
+            newValue: `${oldStock} packs, ${newOpenPieces} open pieces`,
+            severity: 'info',
+          })
+        } else {
+          // Pack-based: add a reversal batch so FIFO tracking stays intact
+          db.stockBatches.push({
+            id: uid(),
+            ingredientId: item.id,
+            ingredientName: item.name,
+            quantity: qty,
+            originalQuantity: qty,
+            receivedAt: new Date().toISOString(),
+            expiryDate: null,
+            deliveryId: null,
+            poNumber: null,
+            supplier: `Void Reversal — ${order.order_number}`,
+            isExhausted: false,
+          })
+          const newStock = recalculateStock(ingredientId)
+          db.ingredients[i] = { ...item, current_stock: newStock }
+          createLog({
+            action: 'stock_adjusted',
+            ingredientId,
+            ingredientName: item.name,
+            performedBy: voidedBy || 'Admin',
+            details: `+${qty} ${item.unit || 'units'} returned — order ${order.order_number} cancelled`,
+            previousValue: `${oldStock} ${item.unit || 'units'}`,
+            newValue: `${newStock} ${item.unit || 'units'}`,
+            severity: 'info',
+          })
+        }
+      }
+
+      // Mark the order as voided
+      db.orders[orderIndex] = {
+        ...order,
+        status: 'voided',
+        voidNote: voidNote || null,
+        voidedAt: new Date().toISOString(),
+        voidedBy: voidedBy || 'Admin',
+      }
+
+      save(db)
+      return Promise.resolve(db.orders[orderIndex])
+    },
+
     update(id, data) {
       const i = db.orders.findIndex((o) => o.id === id)
       if (i >= 0) {
@@ -876,13 +1108,15 @@ export const api = {
             remaining -= fromOpen
 
             let packsOpened = 0
+            let consumedBatches = []
             if (remaining > 0) {
               packsOpened = Math.ceil(remaining / ppp)
               if (packsOpened > currentStock) {
                 // Shouldn't happen — we validated up front — but guard anyway.
                 throw new Error(`Stock race: ${item.name} no longer has enough packs`)
               }
-              deductFIFO(ingredientId, packsOpened)
+              // #5 — capture which batches were consumed
+              consumedBatches = deductFIFO(ingredientId, packsOpened)
               currentStock = recalculateStock(ingredientId)
               openPieces += packsOpened * ppp - remaining
               if (openPieces < 0) openPieces = 0
@@ -899,6 +1133,8 @@ export const api = {
               note: `POS order ${orderRow.order_number}`,
               loggedBy: cashier,
               orderId: orderRow.id,
+              // #5 — link to source batch(es)
+              batchIds: consumedBatches.length > 0 ? consumedBatches.map((c) => c.batchId) : undefined,
               createdAt: new Date().toISOString(),
             })
 
@@ -915,6 +1151,21 @@ export const api = {
               severity: 'info',
             })
 
+            // #4 — Low-stock alert after piece deduction
+            if (currentStock <= item.warning_level) {
+              db.inventoryLogs.push({
+                id: uid(),
+                createdAt: new Date().toISOString(),
+                action: 'low_stock',
+                ingredientId,
+                ingredientName: item.name,
+                performedBy: 'System',
+                details: `${item.name} dropped to ${currentStock} unopened pack${currentStock !== 1 ? 's' : ''} — below warning level of ${item.warning_level}`,
+                newValue: `${currentStock} packs`,
+                severity: currentStock === 0 ? 'critical' : 'warning',
+              })
+            }
+
             deductions.push({
               ingredientId,
               ingredientName: item.name,
@@ -929,7 +1180,8 @@ export const api = {
             if (deduct > oldStock) {
               throw new Error(`Stock race: ${item.name} no longer has enough packs`)
             }
-            deductFIFO(ingredientId, deduct)
+            // #5 — capture which batches were consumed
+            const packConsumedBatches = deductFIFO(ingredientId, deduct)
             const newStock = recalculateStock(ingredientId)
 
             db.ingredients[i] = { ...item, current_stock: newStock }
@@ -943,6 +1195,8 @@ export const api = {
               note: `Auto-deducted from POS order ${orderRow.order_number}`,
               loggedBy: cashier,
               orderId: orderRow.id,
+              // #5 — link to source batch(es)
+              batchIds: packConsumedBatches.length > 0 ? packConsumedBatches.map((c) => c.batchId) : undefined,
               createdAt: new Date().toISOString(),
             })
 
@@ -958,6 +1212,21 @@ export const api = {
               details: `Auto-deducted ${deduct} ${item.unit || 'pack'}${deduct > 1 ? 's' : ''} of ${item.name} for POS order ${orderRow.order_number}`,
               severity: 'info',
             })
+
+            // #4 — Low-stock alert after pack deduction
+            if (newStock <= item.warning_level) {
+              db.inventoryLogs.push({
+                id: uid(),
+                createdAt: new Date().toISOString(),
+                action: 'low_stock',
+                ingredientId,
+                ingredientName: item.name,
+                performedBy: 'System',
+                details: `${item.name} dropped to ${newStock} pack${newStock !== 1 ? 's' : ''} — below warning level of ${item.warning_level}`,
+                newValue: `${newStock} packs`,
+                severity: newStock === 0 ? 'critical' : 'warning',
+              })
+            }
 
             deductions.push({
               ingredientId,
@@ -1195,6 +1464,13 @@ export const api = {
       const oldOpenPieces = item.open_pieces || 0
       const deduct = Math.max(1, Math.floor(qty))
 
+      // Guard: reject if not enough unopened packs in stock
+      if (oldStock < deduct) {
+        return Promise.reject(
+          new Error(`Not enough stock — only ${oldStock} pack${oldStock !== 1 ? 's' : ''} available for ${item.name}`)
+        )
+      }
+
       // Deduct from FIFO batches (unopened packs)
       deductFIFO(itemId, deduct)
       const newStock = recalculateStock(itemId)
@@ -1288,12 +1564,13 @@ export const api = {
 
       // 2. Auto-open packs for the rest
       let packsOpened = 0
+      let consumedBatches = []
       if (remaining > 0) {
         packsOpened = Math.ceil(remaining / piecesPerPack)
         packsOpened = Math.min(packsOpened, currentStock) // can't open more than available
         const piecesFromPacks = packsOpened * piecesPerPack
-        // Deduct packs from FIFO batches
-        deductFIFO(itemId, packsOpened)
+        // Deduct packs from FIFO batches — returns consumed batch info (#5)
+        consumedBatches = deductFIFO(itemId, packsOpened)
         currentStock = recalculateStock(itemId)
         // Add the newly opened pieces, then deduct what was needed
         openPieces += piecesFromPacks - remaining
@@ -1310,6 +1587,7 @@ export const api = {
         quantity: -piecesNeeded,
         note: note || null,
         loggedBy,
+        batchIds: consumedBatches.length > 0 ? consumedBatches.map((c) => c.batchId) : undefined,
         createdAt: new Date().toISOString(),
       }
       db.stockLogs = db.stockLogs || []
@@ -1327,6 +1605,19 @@ export const api = {
         details: `${loggedBy} used ${piecesNeeded} ${item.name} piece${piecesNeeded !== 1 ? 's' : ''}${packInfo}${note ? ` — ${note}` : ''}`,
         severity: 'info',
       })
+
+      // #4 — Stockout / low-stock alert after POS piece deduction
+      if (currentStock <= item.warning_level) {
+        createLog({
+          action: 'low_stock',
+          ingredientId: itemId,
+          ingredientName: item.name,
+          performedBy: 'System',
+          details: `${item.name} dropped to ${currentStock} unopened pack${currentStock !== 1 ? 's' : ''} — below warning level of ${item.warning_level}`,
+          newValue: `${currentStock} packs`,
+          severity: currentStock === 0 ? 'critical' : 'warning',
+        })
+      }
 
       return Promise.resolve({ item: db.ingredients[i], log: logEntry })
     },
@@ -1782,29 +2073,18 @@ export const api = {
         }
         db.stockLogs.push(stockLogEntry)
 
+        // #1/#2 — expiry date folded into delivery_received details
+        const expiryNote = line.expiry_date ? ` — expires ${formatDateForLog(line.expiry_date)}` : ''
         createLog({
           action: 'delivery_received',
           ingredientId: ingredient.id,
           ingredientName: ingredient.name,
           performedBy: receivedBy,
-          details: `Received ${quantityReceived} ${ingredient.unit} from ${supplier || po?.supplier || 'supplier'}${po ? ` (PO: ${po.po_number})` : ''}`,
+          details: `Received ${quantityReceived} ${ingredient.unit} from ${supplier || po?.supplier || 'supplier'}${po ? ` (PO: ${po.po_number})` : ''}${expiryNote}`,
           previousValue: `${oldStock} ${ingredient.unit}`,
           newValue: `${newStock} ${ingredient.unit}`,
           severity: 'info',
         })
-
-        if (line.expiry_date) {
-          const formattedDate = formatDateForLog(line.expiry_date)
-          createLog({
-            action: 'expiry_added',
-            ingredientId: ingredient.id,
-            ingredientName: ingredient.name,
-            performedBy: receivedBy,
-            details: `Expiry date updated from delivery batch: ${formattedDate}`,
-            newValue: formattedDate,
-            severity: 'info',
-          })
-        }
 
         if (sourceType === 'po' && discrepancy !== 0) {
           hasDiscrepancy = true
@@ -1984,29 +2264,18 @@ export const api = {
           createdAt: new Date().toISOString(),
         })
 
+        // #1/#2 — expiry date folded into delivery_received details
+        const partialExpiryNote = line.expiry_date ? ` — expires ${formatDateForLog(line.expiry_date)}` : ''
         createLog({
           action: 'delivery_received',
           ingredientId: ingredient.id,
           ingredientName: ingredient.name,
           performedBy: receivedBy,
-          details: `Partial completion for ${po.po_number}: received ${safeNowReceiving} ${ingredient.unit}`,
+          details: `Partial completion for ${po.po_number}: received ${safeNowReceiving} ${ingredient.unit}${partialExpiryNote}`,
           previousValue: `${oldStock} ${ingredient.unit}`,
           newValue: `${newStock} ${ingredient.unit}`,
           severity: 'info',
         })
-
-        if (line.expiry_date) {
-          const formattedDate = formatDateForLog(line.expiry_date)
-          createLog({
-            action: 'expiry_added',
-            ingredientId: ingredient.id,
-            ingredientName: ingredient.name,
-            performedBy: receivedBy,
-            details: `Expiry date updated from partial completion: ${formattedDate}`,
-            newValue: formattedDate,
-            severity: 'info',
-          })
-        }
 
         normalizedItems.push({
           ingredientId: ingredient.id,

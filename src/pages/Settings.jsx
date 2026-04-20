@@ -285,6 +285,17 @@ function UserModal({ user, onClose, onSaved }) {
 
   const isEdit = !!user
 
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onClose?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true)

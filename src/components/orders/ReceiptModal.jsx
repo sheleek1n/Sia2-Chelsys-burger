@@ -1,9 +1,22 @@
+import { useEffect } from 'react'
 import { format } from 'date-fns'
 import { X, Printer } from 'lucide-react'
 import { getMenuItemIcon } from '@/utils/menuItemIcons'
 import { getPaymentLabel } from '@/utils'
 
 export default function ReceiptModal({ order, onClose }) {
+  useEffect(() => {
+    if (!order) return
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault()
+        onClose?.()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [order, onClose])
+
   if (!order) return null
 
   const createdAt = order.created_at || order.createdAt
