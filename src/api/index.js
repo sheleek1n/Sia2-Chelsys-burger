@@ -2201,11 +2201,7 @@ export const api = {
       if (!po) return Promise.reject(new Error('PO not found'))
       if (po.status !== 'partially_received') return Promise.reject(new Error('PO is not marked as partially received'))
 
-      const completionExists = (db.deliveries || []).some((delivery) => delivery.purchaseOrderRefId === po.id && delivery.isPartialCompletion)
-      if (completionExists) {
-        return Promise.reject(new Error('Partial completion already recorded for this PO'))
-      }
-
+      // Allow multiple completions — PO stays partially_received until all items are received
       const originalPartial = (db.deliveries || []).find((delivery) => delivery.purchaseOrderRefId === po.id && delivery.hasDiscrepancy && !delivery.isPartialCompletion)
       const poItemsByIngredientId = new Map((po.items || []).map((item) => [item.ingredientId, item]))
 

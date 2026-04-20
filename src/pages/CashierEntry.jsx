@@ -5,10 +5,12 @@ import { useAuth } from '@/lib/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { format } from 'date-fns'
+import { Eye, EyeOff } from 'lucide-react'
 
 export default function CashierEntry() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -77,18 +79,29 @@ export default function CashierEntry() {
               className="h-12 bg-slate-50 border-slate-200 focus:border-[#B01010] focus:ring-[#B01010]"
               autoComplete="username"
             />
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => { 
-                setPassword(e.target.value)
-                if (error) setError('')
-              }}
-              placeholder="Password"
-              className="h-12 bg-slate-50 border-slate-200 focus:border-[#B01010] focus:ring-[#B01010]"
-              autoComplete="current-password"
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  if (error) setError('')
+                }}
+                placeholder="Password"
+                className="h-12 bg-slate-50 border-slate-200 focus:border-[#B01010] focus:ring-[#B01010] pr-10"
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                tabIndex={-1}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
             {error && (
               <p className="text-sm font-medium text-red-600 text-center">{error}</p>
             )}

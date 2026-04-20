@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const database = require('./database.cjs')
@@ -47,7 +47,7 @@ function createWindow() {
 
   if (isPackaged) {
     loadDist()
-    return
+    return win
   }
 
   if (preferDev) {
@@ -56,7 +56,7 @@ function createWindow() {
       console.warn('[Chelsys] Dev server unreachable, falling back to dist/:', err.message)
       loadDist()
     })
-    return
+    return win
   }
 
   // Default for `npx electron .` — prefer built file if it exists
@@ -65,6 +65,8 @@ function createWindow() {
   } else {
     win.loadURL('http://localhost:5173').catch(() => loadDist())
   }
+
+  return win
 }
 
 // ── IPC Handlers ──────────────────────────────────────────────
@@ -83,7 +85,27 @@ ipcMain.handle('db:getPath', () => {
 
 // ── App Lifecycle ─────────────────────────────────────────────
 app.whenReady().then(() => {
-  createWindow()
+  const win = createWindow()
+
+  // Confirm before closing
+  if (win) {
+    win.on('close', (e) => {
+      e.preventDefault()
+      dialog.showMessageBox(win, {
+        type: 'question',
+        buttons: ['Exit', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        title: "Exit Chelsy's Burger POS",
+        message: 'Are you sure you want to exit?',
+        detail: 'Any unsaved changes will be lost.',
+      }).then(({ response }) => {
+        if (response === 0) {
+          win.destroy() // bypass the close event and force quit
+        }
+      })
+    })
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

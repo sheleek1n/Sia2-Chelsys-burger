@@ -1099,7 +1099,6 @@ export default function SupplyChain() {
                             size="sm"
                             onClick={() => { setCompletionPO(po); setReceiveDelOpen(true) }}
                             className="h-7 text-xs font-semibold text-orange-700 border-orange-200 hover:bg-orange-50"
-                            disabled={deliveries.some((delivery) => delivery.purchaseOrderRefId === po.id && delivery.isPartialCompletion)}
                           >
                             Mark as Done
                           </Button>

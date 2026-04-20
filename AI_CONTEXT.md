@@ -1,7 +1,7 @@
 # AI_CONTEXT.md — Chelsy's Burger POS
 > Single source of truth for all AI collaborators (Claude, Cursor, Copilot).
 > Update after every feature, architecture change, or bug fix.
-> Last updated: 2026-04-20 (session 4)
+> Last updated: 2026-04-20 (session 5)
 
 ---
 
@@ -488,6 +488,10 @@ PurchaseOrder {
 - [x] **`previousValue` in all seed inventory logs** — delivery logs now show "0 packs → 3 packs" style before/after in Activity Log; stale log_s7 (wrong action) removed; log_s9 "28 pcs" corrected to "16 pcs"
 - [x] **Cashier "My Orders" tab** — tab bar added to CashierPOS; My Orders shows today's orders for the logged-in cashier; expandable rows + incident note add/edit modal
 - [x] **`SEED_VERSION = '7'`** — bumped from 6; stale persisted data auto-wiped on next Electron boot
+- [x] **Password show/hide toggle** — `CashierEntry.jsx` and `Login.jsx` both now have `showPassword` state + Eye/EyeOff button; `type` switches between `"password"` and `"text"`
+- [x] **Exit confirmation dialog** — `electron/main.cjs` intercepts the window `close` event and shows a native OS dialog ("Are you sure you want to exit?"); Cancel is default; Exit calls `win.destroy()` to bypass re-triggering the event
+- [x] **Multi-delivery partial completion** — removed single-completion guard (`completionExists` check) from `api.deliveries.completePartial()`; removed `disabled` prop from "Mark as Done" button in `SupplyChain.jsx`; PO stays `partially_received` until all quantities are met, allowing unlimited completion deliveries
+- [x] **`.claude/` added to `.gitignore`** — project-level Claude Code config excluded from version control
 
 ---
 
@@ -533,6 +537,10 @@ PurchaseOrder {
 | 2026-04-20 | Supply Chain compact UX: dense/comfort toggle, collapsible PO filters, shorter status labels, condensed empty states, and expiry chip progressive disclosure (`+N more`) |
 | 2026-04-20 | POS New Order change: payment panel notes are now hidden by default behind a `+ Add note` toggle (`src/components/orders/OrderForm.jsx`) |
 | 2026-04-20 | ESC-close behavior expanded to non-Dialog custom modals (`ReceiptModal`, `StockShortageModal`, `DeleteConfirmModal`, Cashier incident note, ProductionLog confirm, SupplyChain suppliers, Settings user modal, Dashboard EOD modal) |
+| 2026-04-20 | Password show/hide toggle added to `CashierEntry.jsx` and `Login.jsx` — `showPassword` state, Eye/EyeOff icon, `type` switches `"password"` ↔ `"text"`; was hardcoded `type="password"` before |
+| 2026-04-20 | Exit confirmation dialog — `electron/main.cjs` intercepts `close` event via `e.preventDefault()`, shows native `dialog.showMessageBox` ("Are you sure?"); Cancel=default, Exit calls `win.destroy()`; `createWindow()` now returns `win` |
+| 2026-04-20 | Multi-delivery partial completion fix — removed `completionExists` one-shot guard from `api.deliveries.completePartial()`; removed `disabled` from "Mark as Done" button in `SupplyChain.jsx`; PO stays `partially_received` until fully received across any number of deliveries |
+| 2026-04-20 | `.claude/` added to `.gitignore` — replaces narrower `.claude/worktrees/` entry |
 
 ---
 

@@ -49,10 +49,34 @@ npm run electron:dev
 
 | Role | Username | Password | Notes |
 |---|---|---|---|
-| Admin | `admin` | `admin123` | Session persists on restart |
-| Cashier | `user` | `user123` | Session resets on close (by design) |
+| Admin | `admin` | `admin123` | Full access to all pages; session persists on restart |
+| Cashier | `user` | `user123` | POS + My Orders only; session resets on close |
 
 > Change passwords via the **Settings** page after logging in as admin.
+
+---
+
+## Features
+
+### Admin (Dashboard, Orders, Inventory, Supply Chain, Settings)
+
+- **Dashboard** — Daily/weekly sales KPIs, revenue chart, top-selling items, low-stock alerts, and a **projected stock runout** widget (estimates days remaining per ingredient based on the last 7 days of consumption).
+- **POS / Cashier** — Cart-based order taking, GCash + cash payment, receipt modal, stock shortage warnings.
+- **Orders** — Full order history with expandable rows (click any row to see itemised breakdown), void management with automatic stock reversal, incident note display.
+- **Inventory (Products page)** — Menu items, ingredient management with three tracking types (piece-level, pack-counted, bulk/manual), FIFO batch visibility, activity log.
+- **Production Log** — Manual "Open Pack" entries with FIFO batch source tracking and grouping by ingredient category.
+- **Supply Chain** — Purchase orders, partial and multi-step deliveries (a PO can receive multiple short shipments until fully fulfilled), FIFO batch creation on completion.
+- **Settings** — Admin account management, database backup export/import, and one-click **Reset & Load Demo Data**.
+
+### Cashier
+
+- **My Orders tab** — Cashiers see only their own orders for the current shift. Each row is expandable to show itemised details, payment method, and any incident note. Cashiers can add or edit incident notes directly from this tab.
+
+### UX Details
+
+- Password visibility toggle on all login screens (Admin Login and Cashier Entry).
+- Exit confirmation dialog — the app prompts "Are you sure you want to exit?" before closing.
+- Expandable order rows throughout the Orders page with inline item preview (first 2 items + "+ N more").
 
 ---
 
@@ -83,6 +107,7 @@ Electron Desktop App
 ├── Main Process (electron/main.cjs)
 │   ├── Creates BrowserWindow
 │   ├── Loads Vite dev server in dev (--dev flag) or dist/index.html in prod
+│   ├── Exit confirmation dialog (intercepts window close event)
 │   └── IPC handlers: db:load, db:save, db:getPath
 │
 ├── Preload (electron/preload.cjs)
@@ -107,9 +132,11 @@ Electron Desktop App
 
 4. **FIFO batch tracking.** Every delivery creates a batch row. Consumption depletes the oldest batch first. UI shows "Using stock from Shipment #XXXX."
 
-5. **HashRouter, not BrowserRouter.** Required because Electron loads the renderer from `file://`.
+5. **Multi-step partial deliveries.** `deliveries.completePartial()` allows unlimited completions per PO — a PO stays `partially_received` until all items are accounted for, so multiple short shipments are fully supported.
 
-6. **Local timezone dates.** All dates use the device's local time — Philippines business-day boundaries are correct.
+6. **HashRouter, not BrowserRouter.** Required because Electron loads the renderer from `file://`.
+
+7. **Local timezone dates.** All dates use the device's local time — Philippines business-day boundaries are correct.
 
 ---
 
@@ -117,7 +144,7 @@ Electron Desktop App
 
 ```
 electron/
-  main.cjs ................. Electron main process + IPC + dev/prod detection
+  main.cjs ................. Electron main process + IPC + dev/prod detection + exit dialog
   preload.cjs .............. contextBridge exposing electronAPI.db
   database.cjs ............. better-sqlite3 schema, load/save, JSON migration
 
@@ -125,7 +152,7 @@ src/
   api/
     index.js ............... ← ALL data operations go here
   components/
-    dashboard/ ............. Dashboard widgets
+    dashboard/ ............. Dashboard widgets (incl. ProjectedRunout)
     inventory/ ............. IngredientForm, category manager
     orders/ ................ OrderForm (POS cart), StockShortageModal, ReceiptModal
     shared/ ................ PageHeader, DeleteConfirmModal
@@ -134,20 +161,35 @@ src/
     AuthContext.jsx ........ Admin session provider
     useCashierStore.js ..... Zustand cashier session store
   pages/
-    Dashboard.jsx .......... Sales KPIs, charts, alerts (admin only)
-    CashierPOS.jsx ......... Order-taking, cart, receipt, shortage modal
-    Orders.jsx ............. Order history, void management
+    Dashboard.jsx .......... Sales KPIs, charts, alerts, runout forecast (admin only)
+    CashierPOS.jsx ......... New Order tab + My Orders tab (cashier session only)
+    Orders.jsx ............. Order history, expandable rows, void management
     ProductionLog.jsx ...... "Open Pack" logging with FIFO batch view
     Products.jsx ........... Menu + inventory + recipes + activity log
-    SupplyChain.jsx ........ Purchase orders + deliveries
+    SupplyChain.jsx ........ Purchase orders + multi-step deliveries
     Settings.jsx ........... Admin accounts + backup + demo reset
-    CashierEntry.jsx ....... Unified login screen
+    Login.jsx .............. Admin login screen (with password toggle)
+    CashierEntry.jsx ....... Cashier login screen (with password toggle)
   utils/
     menuItemIcons.js ....... Emoji mappings for menu categories
   App.jsx .................. HashRouter + role-based auth wrapper
   Layout.jsx ............... Sidebar navigation (role-aware)
   pages.config.js .......... Page registry
 ```
+
+---
+
+## Seed / Demo Data
+
+Pressing **Settings → Reset & Load Demo Data** wipes the database and loads a realistic week's worth of data:
+
+- **39 orders** spread across 7 days, placed by both `Admin User` (admin) and `Maria Santos` (cashier) in a realistic ratio.
+- One order (`seed_ord_2`, today) has an incident note flagged with ⚠️ — visible in both the Orders page and the cashier's My Orders tab.
+- **10 inventory log entries** covering deliveries, low-stock alerts, and manual adjustments — all with `previousValue` and `newValue` for a complete audit trail.
+- **6 purchase orders** in various states (`pending`, `partially_received`, `received`, `cancelled`) to demonstrate the full supply chain flow.
+- Multiple batches per ingredient to demonstrate FIFO consumption.
+
+> Seed version is controlled by `SEED_VERSION` in `src/api/index.js`. Bumping the version triggers an automatic reseed on next launch.
 
 ---
 
@@ -159,20 +201,8 @@ src/
 | `NODE_MODULE_VERSION mismatch` | Run `npm rebuild better-sqlite3` or `npx electron-rebuild -f -w better-sqlite3` |
 | `node test.js` fails with ABI error | Expected — better-sqlite3 is compiled for Electron's ABI, not system Node. Always test inside Electron. |
 | DB file not found | Auto-created on first run at: `C:\Users\<you>\AppData\Roaming\chelsys-burger\chelsys-burger.db` |
-| Old data from localStorage | Run **Settings → Reset & Load Demo Data** to wipe and reseed |
+| Old data / missing demo content | Run **Settings → Reset & Load Demo Data** to wipe and reseed |
 | Build chunk >500kB warning | Known and acceptable — no code-splitting yet |
-
----
-
-## Recent Changes
-
-- **Fixed `npm run electron:dev`** — Vite now binds to `127.0.0.1` so `wait-on` resolves on Windows; Electron picks up a `--dev` CLI flag to load the dev server instead of stale `dist/`.
-- **Piece-level stock tracking** — ingredients have an optional `pieces_per_pack` field; POS auto-deducts pieces and auto-opens packs as needed via FIFO.
-- **FIFO batch visibility** — Production Log and inventory table can expand to show each active shipment with received date, expiry, and remaining qty.
-- **Atomic POS order placement** — `placeOrderAtomic()` validates and applies all stock mutations in a single SQLite transaction with snapshot rollback.
-- **Auto stock deduction from POS** — placing an order with recipes attached now consumes countable ingredients automatically.
-- **Tightened Production Log UI** — batch rows condensed, redundant legend removed, stock preview simplified.
-- **SQLite migration** — fully migrated from localStorage/JSON to `better-sqlite3` with auto-migration from legacy JSON file.
 
 ---
 
@@ -187,11 +217,15 @@ src/
 - [x] Ingredient categories + Production Log grouping
 - [x] Expiry date tracking per batch
 - [x] Activity log (all inventory changes)
-- [x] Supply chain (POs + deliveries + partial delivery completion)
+- [x] Supply chain (POs + multi-step partial deliveries)
 - [x] Backup export/import + demo data reset
+- [x] Projected stock runout forecast (Dashboard)
+- [x] Expandable order rows with inline item preview
+- [x] Cashier "My Orders" tab with incident notes
+- [x] Password visibility toggle on all login screens
+- [x] Exit confirmation dialog
+- [x] Order void with automatic stock reversal
 - [ ] Signed `.exe` installer via electron-builder
 - [ ] Receipt printer + cash drawer integration
 - [ ] First-launch setup wizard (admin password)
-- [ ] Individual cashier accounts per person
 - [ ] PDF report exports
-- [ ] Order void → stock reversal
