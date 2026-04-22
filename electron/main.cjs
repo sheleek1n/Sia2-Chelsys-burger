@@ -74,9 +74,15 @@ ipcMain.handle('db:load', () => {
   return database.load()
 })
 
-ipcMain.handle('db:save', (_event, data) => {
-  database.save(data)
-  return true
+// Synchronous save — renderer blocks until this returns, so no data is ever
+// lost between a save() call and the window being destroyed.
+ipcMain.on('db:save', (event, data) => {
+  try {
+    database.save(data)
+  } catch (err) {
+    console.error('[Chelsys] db:save failed:', err.message)
+  }
+  event.returnValue = true
 })
 
 ipcMain.handle('db:getPath', () => {

@@ -457,7 +457,14 @@ function localDate(d = new Date()) {
 
 function save(data) {
   if (isElectron) {
-    // Save to Electron file system via IPC
+    // GUARD: never write to SQLite during the module init phase.
+    // At module load time, `db` holds seed data (real data hasn't loaded yet).
+    // Any save() fired by migration checks before _electronDataLoaded is set
+    // would permanently overwrite SQLite with seed — wiping user changes.
+    if (!_electronDataLoaded) return
+
+    // sendSync — blocks the renderer until SQLite write completes.
+    // Guarantees every mutation is durable before the next line of JS runs.
     try {
       window.electronAPI.db.save(data)
     } catch (err) {
@@ -465,7 +472,7 @@ function save(data) {
     }
     return
   }
-  // Fallback: save to localStorage
+  // Fallback: save to localStorage (browser / dev mode)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch (err) {
@@ -722,9 +729,10 @@ async function initElectronDb() {
       const fresh = buildFreshSeed()
       for (const key of Object.keys(db)) delete db[key]
       Object.assign(db, fresh)
+      // Set flag BEFORE save() so the guard in save() allows this write through
+      _electronDataLoaded = true
       save(db)
       console.log(`[Chelsys] Seed version mismatch (${fileSeedVersion || 'none'} -> ${SEED_VERSION}). Database reset to fresh seed.`)
-      _electronDataLoaded = true
       return
     }
 
@@ -739,9 +747,13 @@ async function initElectronDb() {
       for (const key of Object.keys(db)) delete db[key]
       Object.assign(db, fileData)
       db.meta = { ...(db.meta || {}), seed_version: SEED_VERSION }
+      // Data already lives in SQLite — no write needed, just mark loaded
+      _electronDataLoaded = true
       console.log('[Chelsys] Loaded data from SQLite')
     } else {
       // Empty SQLite file — check for legacy localStorage, else persist current seed
+      // Set flag BEFORE save() calls so they are allowed through
+      _electronDataLoaded = true
       try {
         const raw = localStorage.getItem(STORAGE_KEY)
         if (raw) {
@@ -762,7 +774,6 @@ async function initElectronDb() {
         save(db)
       }
     }
-    _electronDataLoaded = true
   } catch (err) {
     console.error('[Chelsys] Failed to load from Electron:', err)
     // Mark loaded anyway so the UI can boot with seed (better than blank screen)
@@ -1903,51 +1914,6 @@ export const api = {
       db.purchaseOrders = db.purchaseOrders || []
       const i = db.purchaseOrders.findIndex((x) => x.id === id)
       if (i >= 0) db.purchaseOrders[i] = { ...db.purchaseOrders[i], ...data }
-      save(db)
-      return Promise.resolve(db.purchaseOrders[i])
-    },
-    // Mark as received: update status and add stock for each line item
-    receive(id, { receivedBy } = {}) {
-      db.purchaseOrders = db.purchaseOrders || []
-      const i = db.purchaseOrders.findIndex((x) => x.id === id)
-      if (i < 0) return Promise.reject(new Error('PO not found'))
-      const po = db.purchaseOrders[i]
-      // Add stock for each line item
-      const items = po.items || []
-      items.forEach((line) => {
-        const ing = (db.ingredients || []).findIndex((x) => x.id === line.ingredientId)
-        if (ing >= 0) {
-          const oldStock = db.ingredients[ing].current_stock || 0
-          const newStock = oldStock + (line.quantity || 0)
-          db.ingredients[ing] = {
-            ...db.ingredients[ing],
-            current_stock: newStock,
-          }
-
-          // Legacy stock log
-          const logEntry = {
-            id: uid(), itemId: line.ingredientId, itemName: line.ingredientName,
-            action: 'received', quantity: line.quantity,
-            note: `PO ${po.po_number}`, loggedBy: receivedBy || 'Admin',
-            createdAt: new Date().toISOString(),
-          }
-          db.stockLogs = db.stockLogs || []
-          db.stockLogs.push(logEntry)
-
-          // Log: delivery_received
-          createLog({
-            action: 'delivery_received',
-            ingredientId: line.ingredientId,
-            ingredientName: line.ingredientName,
-            performedBy: receivedBy || 'Admin',
-            details: `Received ${line.quantity} ${db.ingredients[ing].unit || 'units'} from ${line.supplierName || po.supplier || 'supplier'} (via ${po.po_number})`,
-            previousValue: `${oldStock} ${db.ingredients[ing].unit || 'units'}`,
-            newValue: `${newStock} ${db.ingredients[ing].unit || 'units'}`,
-            severity: 'info',
-          })
-        }
-      })
-      db.purchaseOrders[i] = { ...po, status: 'received', received_at: new Date().toISOString(), received_by: receivedBy || 'Admin' }
       save(db)
       return Promise.resolve(db.purchaseOrders[i])
     },
