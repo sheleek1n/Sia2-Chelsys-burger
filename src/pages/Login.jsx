@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { format } from 'date-fns'
 import { Eye, EyeOff } from 'lucide-react'
+import logoUrl from '@/assets/chelsys-burger-logo.png'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -38,7 +39,7 @@ export default function Login() {
         
         {/* Header styling specifically to match Chelsy's Brand */}
         <div className="flex flex-col items-center">
-          <img src="/chelsys-burger-logo.png" alt="Chelsy's Burger" className="h-24 w-24 object-contain mb-4" />
+          <img src={logoUrl} alt="Chelsy's Burger" className="h-24 w-24 object-contain mb-4" />
           <h1 className="text-3xl font-extrabold tracking-tight text-[#2c1810]">Chelsy's Burger</h1>
           <p className="text-muted-foreground font-medium mt-1">{today}</p>
         </div>
