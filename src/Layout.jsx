@@ -16,8 +16,9 @@ import {
 
 import { useNavigate } from "react-router-dom";
 import { useCashierStore } from "@/lib/useCashierStore";
+import logoUrl from "@/assets/chelsys-burger-logo.png";
 
-const LOGO_SRC = "/chelsys-burger-logo.png";
+const LOGO_SRC = logoUrl;
 
 const NAV_ITEMS = [
   { label: "Home",           icon: Home,            page: "Dashboard",      roles: ["admin"] },

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { format } from 'date-fns'
 import { Eye, EyeOff } from 'lucide-react'
+import logoUrl from '@/assets/chelsys-burger-logo.png'
 
 export default function CashierEntry() {
   const [username, setUsername] = useState('')
@@ -53,7 +54,7 @@ export default function CashierEntry() {
         {/* Header */}
         <div className="flex flex-col items-center">
           <img 
-            src="/chelsys-burger-logo.png" 
+            src={logoUrl}
             alt="Chelsy's Burger" 
             className="h-24 w-24 object-contain mb-4" 
           />

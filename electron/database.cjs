@@ -98,7 +98,11 @@ function getDb() {
       status TEXT DEFAULT 'completed',
       order_date TEXT,
       created_at TEXT,
-      items TEXT DEFAULT '[]'
+      items TEXT DEFAULT '[]',
+      incidentNote TEXT,
+      voidNote TEXT,
+      voidedAt TEXT,
+      voidedBy TEXT
     );
 
     CREATE TABLE IF NOT EXISTS purchase_orders (
@@ -111,7 +115,9 @@ function getDb() {
       updated_at TEXT,
       received_at TEXT,
       received_by TEXT,
-      items TEXT DEFAULT '[]'
+      items TEXT DEFAULT '[]',
+      expected_date TEXT,
+      total_cost REAL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS deliveries (
@@ -184,6 +190,14 @@ function getDb() {
   // Backfill columns added in later releases for existing installations.
   ensureColumn(_db, 'stock_logs', 'order_id', 'TEXT')
   ensureColumn(_db, 'stock_logs', 'batch_ids', 'TEXT')
+  // Orders: void + incident fields
+  ensureColumn(_db, 'orders', 'incidentNote', 'TEXT')
+  ensureColumn(_db, 'orders', 'voidNote', 'TEXT')
+  ensureColumn(_db, 'orders', 'voidedAt', 'TEXT')
+  ensureColumn(_db, 'orders', 'voidedBy', 'TEXT')
+  // Purchase orders: expected date + total cost
+  ensureColumn(_db, 'purchase_orders', 'expected_date', 'TEXT')
+  ensureColumn(_db, 'purchase_orders', 'total_cost', 'REAL DEFAULT 0')
 
   return _db
 }
@@ -246,12 +260,21 @@ function load() {
       ...r,
       gcash_reference: r.gcash_reference ?? null,
       items: jsonParse(r.items),
+      incidentNote: r.incidentNote ?? null,
+      voidNote: r.voidNote ?? null,
+      voidedAt: r.voidedAt ?? null,
+      voidedBy: r.voidedBy ?? null,
     }))
 
   const purchaseOrders = db.prepare('SELECT * FROM purchase_orders').all()
     .map(r => ({
       ...r,
       items: jsonParse(r.items),
+      // Expose both snake_case (storage) and camelCase (UI expectation) so neither breaks
+      expected_date: r.expected_date ?? null,
+      expectedDate: r.expected_date ?? null,
+      total_cost: r.total_cost ?? 0,
+      totalCost: r.total_cost ?? 0,
     }))
 
   const deliveries = db.prepare('SELECT * FROM deliveries').all()
@@ -394,8 +417,9 @@ function save(data) {
     db.prepare('DELETE FROM orders').run()
     const insertOrder = db.prepare(
       `INSERT INTO orders (id, order_number, cashier_name, total_amount, payment_method,
-        gcash_reference, status, order_date, created_at, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        gcash_reference, status, order_date, created_at, items,
+        incidentNote, voidNote, voidedAt, voidedBy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const o of d.orders || []) {
       insertOrder.run(
@@ -403,7 +427,9 @@ function save(data) {
         o.total_amount ?? 0, o.payment_method ?? 'cash',
         o.gcash_reference ?? null, o.status ?? 'completed',
         o.order_date ?? null, o.created_at ?? null,
-        jsonStr(o.items)
+        jsonStr(o.items),
+        o.incidentNote ?? null, o.voidNote ?? null,
+        o.voidedAt ?? null, o.voidedBy ?? null
       )
     }
 
@@ -411,8 +437,9 @@ function save(data) {
     db.prepare('DELETE FROM purchase_orders').run()
     const insertPO = db.prepare(
       `INSERT INTO purchase_orders (id, po_number, supplier, status, notes,
-        created_at, updated_at, received_at, received_by, items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        created_at, updated_at, received_at, received_by, items,
+        expected_date, total_cost)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const po of d.purchaseOrders || []) {
       insertPO.run(
@@ -420,7 +447,9 @@ function save(data) {
         po.status ?? 'pending', po.notes ?? null,
         po.created_at ?? null, po.updated_at ?? null,
         po.received_at ?? null, po.received_by ?? null,
-        jsonStr(po.items)
+        jsonStr(po.items),
+        po.expected_date ?? po.expectedDate ?? null,
+        po.total_cost ?? po.totalCost ?? 0
       )
     }
 

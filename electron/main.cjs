@@ -1,11 +1,35 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, nativeImage } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const database = require('./database.cjs')
 
 const DIST_INDEX = path.join(__dirname, '..', 'dist', 'index.html')
 
+function getAppIcon() {
+  // Icons must be read from outside the asar (asarUnpack) so the OS can access them.
+  // Try ICO first (best for Windows), fall back to PNG.
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'chelsys-burger-logo.ico'),
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'electron', 'chelsys-burger-logo-icon.png'),
+      ]
+    : [
+        path.join(__dirname, 'chelsys-burger-logo.ico'),
+        path.join(__dirname, 'chelsys-burger-logo-icon.png'),
+      ]
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      const img = nativeImage.createFromPath(p)
+      if (!img.isEmpty()) return img
+    }
+  }
+  return undefined // Electron will use its default if nothing loads
+}
+
 function createWindow() {
+  const icon = getAppIcon()
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -17,6 +41,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
     title: "Chelsy's Burger POS",
+    icon,
     autoHideMenuBar: true,
   })
 
@@ -74,9 +99,15 @@ ipcMain.handle('db:load', () => {
   return database.load()
 })
 
-ipcMain.handle('db:save', (_event, data) => {
-  database.save(data)
-  return true
+// Synchronous save — renderer blocks until this returns, so no data is ever
+// lost between a save() call and the window being destroyed.
+ipcMain.on('db:save', (event, data) => {
+  try {
+    database.save(data)
+  } catch (err) {
+    console.error('[Chelsys] db:save failed:', err.message)
+  }
+  event.returnValue = true
 })
 
 ipcMain.handle('db:getPath', () => {
